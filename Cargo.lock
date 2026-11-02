@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "arcade-server"
+version = "0.1.0"
+dependencies = [
+ "boggle",
+ "rand",
+ "spelling-bee",
+ "trie",
+ "wordle",
+]
+
+[[package]]
 name = "boggle"
 version = "0.1.0"
 dependencies = [

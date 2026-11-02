@@ -19,3 +19,11 @@ desktop.ini
 # Temporary build or agent artifacts
 *.tmp
 *.log
+
+# Frontend & Node
+node_modules/
+dist/
+**/node_modules/
+**/dist/
+.vite/
+

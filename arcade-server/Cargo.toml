@@ -1,0 +1,20 @@
+[package]
+name = "arcade-server"
+version = "0.1.0"
+edition = "2021"
+description = "Native Rust game server providing authoritative JSON endpoints for the Cozy Arcade GUI"
+
+[dependencies]
+trie = { path = "../1 - Library Trie/trie" }
+spelling-bee = { package = "spelling-bee", path = "../2 - Spelling Bee" }
+boggle = { path = "../3 - Boggle" }
+wordle = { path = "../4 - Wordle" }
+rand = "0.8.8"
+
+[[bin]]
+name = "arcade-server"
+path = "src/main.rs"
+
+[lib]
+name = "arcade_server"
+path = "src/lib.rs"

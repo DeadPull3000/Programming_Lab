@@ -5,5 +5,6 @@ members = [
     "2 - Spelling Bee",
     "3 - Boggle",
     "4 - Wordle",
+    "arcade-server",
 ]
 resolver = "2"
