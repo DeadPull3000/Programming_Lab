@@ -3,6 +3,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { GameTab, GamesSummary } from '../types/arcade';
 import { sound } from '../services/sound';
@@ -22,6 +24,8 @@ interface DiaryBookProps {
   currentTab: GameTab;
   onSelectTab: (tab: GameTab) => void;
   summary: GamesSummary | null;
+  soundEnabled?: boolean;
+  onToggleSound?: () => void;
   children: React.ReactNode;
 }
 
@@ -38,6 +42,8 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
   currentTab,
   onSelectTab,
   summary,
+  soundEnabled = true,
+  onToggleSound,
   children,
 }) => {
   const [flipDirection, setFlipDirection] = useState<'next' | 'prev' | null>(null);
@@ -89,7 +95,7 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
   return (
     <div
       style={{
-        minHeight: 'calc(100vh - 68px)',
+        minHeight: '100vh',
         backgroundColor: '#8B5E3C',
         backgroundImage: `
           repeating-linear-gradient(
@@ -101,7 +107,7 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
           ),
           radial-gradient(#9e6b46 15%, #7a4f30 90%)
         `,
-        padding: '20px 16px 85px',
+        padding: '76px 16px 85px',
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
@@ -109,13 +115,119 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
         overflow: 'hidden',
       }}
     >
+      {/* Floating Game Branding on Wooden Desk (Clean floating typography without box) */}
+      <div
+        onClick={() => {
+          sound.playClick();
+          onSelectTab('home');
+        }}
+        title="The Word Garden - Return to Gallery"
+        style={{
+          position: 'absolute',
+          top: '16px',
+          left: '28px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          cursor: 'pointer',
+          zIndex: 25,
+          userSelect: 'none',
+          padding: '2px 4px',
+          transition: 'transform 0.15s ease',
+        }}
+        className="hover-lift"
+      >
+        <div
+          style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--highlight-yellow)',
+            border: '2px solid var(--outline-cocoa)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 5px rgba(0, 0, 0, 0.4)',
+            flexShrink: 0,
+          }}
+        >
+          <PawPrintIcon size={22} />
+        </div>
+        <div>
+          <h1
+            style={{
+              fontSize: '1.24rem',
+              lineHeight: 1.1,
+              color: '#FFF8ED',
+              letterSpacing: '0.8px',
+              margin: 0,
+              fontWeight: 800,
+              fontFamily: "'Fredoka', 'Quicksand', sans-serif",
+              textShadow: '0 2px 4px rgba(45, 20, 10, 0.75), 0 1px 0 rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            THE WORD GARDEN
+          </h1>
+          <p
+            style={{
+              fontSize: '0.74rem',
+              color: '#F4DBC0',
+              fontWeight: 600,
+              margin: '2px 0 0 0',
+              letterSpacing: '0.3px',
+              textShadow: '0 1px 3px rgba(45, 20, 10, 0.65)',
+            }}
+          >
+            A cozy word-game arcade
+          </p>
+        </div>
+      </div>
+
+      {/* Floating Sound Toggle on Wooden Desk */}
+      {onToggleSound && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSound();
+          }}
+          title={soundEnabled ? 'Mute Sounds' : 'Unmute Sounds'}
+          aria-label={soundEnabled ? 'Mute Sounds' : 'Unmute Sounds'}
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '24px',
+            width: '42px',
+            height: '42px',
+            borderRadius: '50%',
+            backgroundColor: soundEnabled ? 'var(--bg-mint)' : 'rgba(254, 250, 240, 0.94)',
+            border: '2.5px solid var(--outline-cocoa)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.22), 0 2px 0 var(--outline-cocoa)',
+            color: 'var(--text-main)',
+            cursor: 'pointer',
+            zIndex: 25,
+            transition: 'all 0.15s ease',
+          }}
+          className="hover-lift"
+        >
+          {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+        </button>
+      )}
+
       {/* Wooden Desk Accessories */}
+      {/* Decorative Stamp on desk */}
+      <div style={{ position: 'absolute', left: '26px', top: '78px', zIndex: 1 }}>
+        <PostageStamp label="15¢" illustration="flower" rotation={-14} size={50} />
+      </div>
+
       {/* Pencils on the left */}
       <div
         style={{
           position: 'absolute',
-          left: '24px',
-          top: '70px',
+          left: '20px',
+          top: '142px',
           display: 'flex',
           flexDirection: 'column',
           gap: '6px',
@@ -156,11 +268,6 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
         />
       </div>
 
-      {/* Decorative Stamp on desk */}
-      <div style={{ position: 'absolute', left: '30px', top: '24px', zIndex: 1 }}>
-        <PostageStamp label="15¢" illustration="flower" rotation={-14} size={50} />
-      </div>
-
       {/* Chocolate Chip Cookie with Crumbs on desk bottom-right */}
       <div
         style={{
@@ -178,8 +285,10 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
         <div
           className="animate-pop"
           style={{
-            position: 'sticky',
-            top: '72px',
+            position: 'fixed',
+            top: '18px',
+            left: '50%',
+            transform: 'translateX(-50%)',
             zIndex: 40,
             backgroundColor: 'var(--panel-cream)',
             border: '3px solid var(--outline-cocoa)',
@@ -192,7 +301,6 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            marginBottom: '10px',
           }}
         >
           <PawPrintIcon size={20} />

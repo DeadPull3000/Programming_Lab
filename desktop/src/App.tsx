@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { GameTab, GamesSummary, SystemStatus, UnifiedStats, ArcadeSettings } from './types/arcade';
 import { arcadeApi } from './services/api';
-import { TopNavigation } from './components/TopNavigation';
 import { Home } from './pages/Home';
 import { WordlePage } from './pages/Wordle';
 import { SpellingBeePage } from './pages/SpellingBee';
@@ -9,7 +8,6 @@ import { BogglePage } from './pages/Boggle';
 import { StatisticsPage } from './pages/Statistics';
 import { SettingsPage } from './pages/Settings';
 import { sound } from './services/sound';
-
 import { DiaryBook } from './components/DiaryBook';
 
 export const App: React.FC = () => {
@@ -90,19 +88,13 @@ export const App: React.FC = () => {
         minHeight: '100vh',
       }}
     >
-      <TopNavigation
-        currentTab={currentTab}
-        onSelectTab={(tab) => setCurrentTab(tab)}
-        summary={summary}
-        soundEnabled={settings.sound_enabled}
-        onToggleSound={handleToggleSound}
-      />
-
       <main style={{ flex: 1 }}>
         <DiaryBook
           currentTab={currentTab}
           onSelectTab={(tab) => setCurrentTab(tab)}
           summary={summary}
+          soundEnabled={settings.sound_enabled}
+          onToggleSound={handleToggleSound}
         >
           {/* All active pages remain alive in memory for instant flipping without reset */}
           <div style={{ display: currentTab === 'home' ? 'block' : 'none' }}>
