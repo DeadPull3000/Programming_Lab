@@ -4,5 +4,6 @@ members = [
     "1 - Library Trie/trie-cli",
     "2 - Spelling Bee",
     "3 - Boggle",
+    "4 - Wordle",
 ]
 resolver = "2"
