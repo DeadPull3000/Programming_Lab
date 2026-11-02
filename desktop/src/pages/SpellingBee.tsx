@@ -29,6 +29,49 @@ interface SpellingBeePageProps {
   onGameComplete?: () => void;
 }
 
+const HexagonTile: React.FC<{
+  letter: string;
+  isCenter?: boolean;
+  onClick: () => void;
+}> = ({ letter, isCenter, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`hex-tile-btn ${isCenter ? 'center' : ''}`}
+    title={isCenter ? 'Mandatory Center Letter' : `Letter ${letter}`}
+    style={{
+      width: '76px',
+      height: '88px',
+    }}
+  >
+    <svg
+      width="76"
+      height="88"
+      viewBox="0 0 100 115"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <polygon
+        points="50,5 95.5,31.25 95.5,83.75 50,110 4.5,83.75 4.5,31.25"
+        fill={isCenter ? '#FFD56D' : '#FFF8ED'}
+        stroke="#60433B"
+        strokeWidth="6"
+        strokeLinejoin="round"
+      />
+      <text
+        x="50"
+        y="69"
+        textAnchor="middle"
+        fontSize={isCenter ? '42' : '38'}
+        fontWeight="900"
+        fontFamily="var(--font-heading)"
+        fill={isCenter ? '#4a3000' : 'var(--text-main)'}
+      >
+        {letter}
+      </text>
+    </svg>
+  </button>
+);
+
 export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete }) => {
   const [gameState, setGameState] = useState<SpellingBeeState | null>(null);
   const [currentInput, setCurrentInput] = useState('');
@@ -291,39 +334,25 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
         <div className="honeycomb-container" style={{ margin: '8px 0' }}>
           {/* Row 1 (2 outer letters) */}
           <div className="honeycomb-row">
-            <button className="hexagon-tile" onClick={() => handleLetterClick(outer[0] || '')}>
-              {outer[0]}
-            </button>
-            <button className="hexagon-tile" onClick={() => handleLetterClick(outer[1] || '')}>
-              {outer[1]}
-            </button>
+            <HexagonTile letter={outer[0] || ''} onClick={() => handleLetterClick(outer[0] || '')} />
+            <HexagonTile letter={outer[1] || ''} onClick={() => handleLetterClick(outer[1] || '')} />
           </div>
 
           {/* Row 2 (1 outer, 1 CENTER, 1 outer) */}
           <div className="honeycomb-row">
-            <button className="hexagon-tile" onClick={() => handleLetterClick(outer[2] || '')}>
-              {outer[2]}
-            </button>
-            <button
-              className="hexagon-tile center"
+            <HexagonTile letter={outer[2] || ''} onClick={() => handleLetterClick(outer[2] || '')} />
+            <HexagonTile
+              letter={gameState.main_letter}
+              isCenter
               onClick={() => handleLetterClick(gameState.main_letter)}
-              title="Mandatory Center Letter"
-            >
-              {gameState.main_letter}
-            </button>
-            <button className="hexagon-tile" onClick={() => handleLetterClick(outer[3] || '')}>
-              {outer[3]}
-            </button>
+            />
+            <HexagonTile letter={outer[3] || ''} onClick={() => handleLetterClick(outer[3] || '')} />
           </div>
 
           {/* Row 3 (2 outer letters) */}
           <div className="honeycomb-row">
-            <button className="hexagon-tile" onClick={() => handleLetterClick(outer[4] || '')}>
-              {outer[4]}
-            </button>
-            <button className="hexagon-tile" onClick={() => handleLetterClick(outer[5] || '')}>
-              {outer[5]}
-            </button>
+            <HexagonTile letter={outer[4] || ''} onClick={() => handleLetterClick(outer[4] || '')} />
+            <HexagonTile letter={outer[5] || ''} onClick={() => handleLetterClick(outer[5] || '')} />
           </div>
         </div>
 

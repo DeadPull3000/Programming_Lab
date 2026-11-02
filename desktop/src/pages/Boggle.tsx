@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Check,
   Clock,
@@ -39,6 +39,9 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
   const [selectedBoardSize, setSelectedBoardSize] = useState<number>(4);
   const [currentInput, setCurrentInput] = useState('');
   const [selectedPath, setSelectedPath] = useState<TileCoord[]>([]);
+  const [isTracing, setIsTracing] = useState<boolean>(false);
+  const isTracingRef = useRef<boolean>(false);
+  const selectedPathRef = useRef<TileCoord[]>([]);
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null);
   const [isShaking, setIsShaking] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -110,10 +113,21 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
     }
   };
 
+  // Keep refs synchronized with state for event listeners
+  useEffect(() => {
+    isTracingRef.current = isTracing;
+  }, [isTracing]);
+
+  useEffect(() => {
+    selectedPathRef.current = selectedPath;
+  }, [selectedPath]);
+
   // Submit word from input or selected path
-  const handleSubmitWord = async () => {
+  const handleSubmitWord = async (overrideWord?: string) => {
     const wordToSubmit = (
-      currentInput.trim() || selectedPath.map((p) => p.letter).join('')
+      overrideWord ||
+      currentInput.trim() ||
+      selectedPathRef.current.map((p) => p.letter).join('')
     ).toUpperCase();
 
     if (!wordToSubmit || !gameState?.is_active) return;
@@ -133,12 +147,14 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
         setFeedback({ text: res.message, isError: true });
       }
       setCurrentInput('');
+      selectedPathRef.current = [];
       setSelectedPath([]);
       setTimeout(() => setFeedback(null), 3000);
     } catch (err: any) {
       sound.playInvalid();
       setFeedback({ text: err.message || 'Submission error', isError: true });
       setCurrentInput('');
+      selectedPathRef.current = [];
       setSelectedPath([]);
     }
   };
@@ -159,7 +175,99 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
     }
   };
 
-  // Interactive mouse path selection
+  // Start pointer tracing on mouse down or touch
+  const handleTraceStart = (row: number, col: number, letter: string) => {
+    if (!gameState?.is_active) return;
+    isTracingRef.current = true;
+    setIsTracing(true);
+    setCurrentInput('');
+    const newPath = [{ row, col, letter }];
+    selectedPathRef.current = newPath;
+    setSelectedPath(newPath);
+    sound.playPop(440);
+  };
+
+  // Move pointer over adjacent tiles to trace the word path
+  const handleTraceEnter = (row: number, col: number, letter: string) => {
+    if (!isTracingRef.current || !gameState?.is_active) return;
+    const path = selectedPathRef.current;
+    if (path.length === 0) return;
+
+    // Backtracking: if dragging back to previous tile, undo the tip
+    if (
+      path.length >= 2 &&
+      path[path.length - 2].row === row &&
+      path[path.length - 2].col === col
+    ) {
+      sound.playClick();
+      const newPath = path.slice(0, -1);
+      selectedPathRef.current = newPath;
+      setSelectedPath(newPath);
+      return;
+    }
+
+    // Prohibit reusing the same tile in a word
+    if (path.some((p) => p.row === row && p.col === col)) {
+      return;
+    }
+
+    // 8-direction adjacency check
+    const last = path[path.length - 1];
+    const dRow = Math.abs(last.row - row);
+    const dCol = Math.abs(last.col - col);
+    if (dRow <= 1 && dCol <= 1 && (dRow + dCol > 0)) {
+      const newPath = [...path, { row, col, letter }];
+      selectedPathRef.current = newPath;
+      setSelectedPath(newPath);
+      sound.playPop(440 + newPath.length * 40);
+    }
+  };
+
+  // Finish pointer trace on mouse release or touch end
+  const handleTraceEnd = () => {
+    if (!isTracingRef.current) return;
+    isTracingRef.current = false;
+    setIsTracing(false);
+
+    // If traced word is 3+ letters, auto-submit directly to the engine
+    if (selectedPathRef.current.length >= 3) {
+      const word = selectedPathRef.current.map((p) => p.letter).join('');
+      handleSubmitWord(word);
+    }
+  };
+
+  // Global pointer up listener to cleanly catch releases outside the board
+  useEffect(() => {
+    const onGlobalEnd = () => {
+      if (isTracingRef.current) {
+        handleTraceEnd();
+      }
+    };
+
+    window.addEventListener('mouseup', onGlobalEnd);
+    window.addEventListener('touchend', onGlobalEnd);
+    return () => {
+      window.removeEventListener('mouseup', onGlobalEnd);
+      window.removeEventListener('touchend', onGlobalEnd);
+    };
+  }, []);
+
+  // Pointer move handler on the grid container for smooth continuous dragging
+  const handleContainerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isTracingRef.current) return;
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const tileBtn = target?.closest('[data-boggle-tile]');
+    if (tileBtn) {
+      const r = parseInt(tileBtn.getAttribute('data-row') || '-1', 10);
+      const c = parseInt(tileBtn.getAttribute('data-col') || '-1', 10);
+      const l = tileBtn.getAttribute('data-letter') || '';
+      if (r >= 0 && c >= 0 && l) {
+        handleTraceEnter(r, c, l);
+      }
+    }
+  };
+
+  // Discrete click interaction (for tapping letter by letter without dragging)
   const handleTileClick = (row: number, col: number, letter: string) => {
     if (!gameState?.is_active) return;
 
@@ -169,7 +277,9 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
       selectedPath[selectedPath.length - 1].col === col
     ) {
       sound.playClick();
-      setSelectedPath((prev) => prev.slice(0, -1));
+      const newPath = selectedPath.slice(0, -1);
+      selectedPathRef.current = newPath;
+      setSelectedPath(newPath);
       return;
     }
 
@@ -193,9 +303,12 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
     }
 
     sound.playPop(440 + selectedPath.length * 50);
-    setSelectedPath((prev) => [...prev, { row, col, letter }]);
+    const newPath = [...selectedPath, { row, col, letter }];
+    selectedPathRef.current = newPath;
+    setSelectedPath(newPath);
   };
 
+  // Keyboard support for typing words directly
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -206,11 +319,14 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
         if (currentInput.length > 0) {
           setCurrentInput((prev) => prev.slice(0, -1));
         } else if (selectedPath.length > 0) {
-          setSelectedPath((prev) => prev.slice(0, -1));
+          const newPath = selectedPath.slice(0, -1);
+          selectedPathRef.current = newPath;
+          setSelectedPath(newPath);
         }
       } else if (/^[a-zA-Z]$/.test(e.key)) {
         sound.playClick();
         setCurrentInput((prev) => prev + e.key.toUpperCase());
+        selectedPathRef.current = [];
         setSelectedPath([]);
       }
     };
@@ -339,90 +455,165 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
           </div>
         )}
 
-        {/* TABLETOP WOODEN BOGGLE GRID */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${gameState.size}, 1fr)`,
-            gap: gameState.size === 6 ? '5px' : '8px',
-            padding: '12px',
-            backgroundColor: '#8B5E3C', // Warm wooden game box
-            border: '3.5px solid #60433B',
-            borderRadius: '16px',
-            boxShadow: '0 5px 0 #60433B',
-          }}
-        >
-          {gameState.grid.map((row, rIdx) =>
-            row.map((letter, cIdx) => {
-              const pathIndex = selectedPath.findIndex((p) => p.row === rIdx && p.col === cIdx);
-              const isSelected = pathIndex !== -1;
-              const isLatest =
-                selectedPath.length > 0 &&
-                selectedPath[selectedPath.length - 1].row === rIdx &&
-                selectedPath[selectedPath.length - 1].col === cIdx;
+        {/* TABLETOP WOODEN BOGGLE GRID WITH INTERACTIVE TRACING */}
+        {(() => {
+          const tileSize = gameState.size === 6 ? 42 : gameState.size === 5 ? 48 : 56;
+          const gap = gameState.size === 6 ? 5 : 8;
+          const padding = 12;
 
-              const tileSize = gameState.size === 6 ? 42 : gameState.size === 5 ? 48 : 56;
+          const getTileCenter = (r: number, c: number) => ({
+            x: padding + c * (tileSize + gap) + tileSize / 2,
+            y: padding + r * (tileSize + gap) + tileSize / 2,
+          });
 
-              return (
-                <button
-                  key={`${rIdx}-${cIdx}`}
-                  onClick={() => handleTileClick(rIdx, cIdx, letter)}
-                  style={{
-                    width: `${tileSize}px`,
-                    height: `${tileSize}px`,
-                    backgroundColor: isLatest
-                      ? '#FFD56D'
-                      : isSelected
-                      ? '#F5D5B9'
-                      : '#FFF0D9',
-                    border: isSelected
-                      ? '2.5px solid var(--outline-cocoa)'
-                      : '2px solid var(--outline-cocoa)',
-                    borderRadius: '10px',
-                    boxShadow: isSelected
-                      ? '0 1px 0 var(--outline-cocoa)'
-                      : '0 3.5px 0 var(--outline-cocoa)',
-                    transform: isSelected ? 'translateY(2px)' : 'none',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontFamily: 'var(--font-heading)',
-                    fontSize: gameState.size === 6 ? '1.25rem' : '1.5rem',
-                    fontWeight: 900,
-                    color: 'var(--text-main)',
-                    cursor: 'pointer',
-                    position: 'relative',
-                    userSelect: 'none',
-                  }}
-                >
-                  <span>{letter}</span>
-                  {isSelected && (
-                    <span
+          const pathPoints = selectedPath
+            .map((p) => {
+              const pt = getTileCenter(p.row, p.col);
+              return `${pt.x},${pt.y}`;
+            })
+            .join(' ');
+
+          return (
+            <div
+              onPointerMove={handleContainerPointerMove}
+              style={{
+                position: 'relative',
+                display: 'grid',
+                gridTemplateColumns: `repeat(${gameState.size}, 1fr)`,
+                gap: `${gap}px`,
+                padding: `${padding}px`,
+                backgroundColor: '#8B5E3C', // Warm wooden game box
+                border: '3.5px solid #60433B',
+                borderRadius: '16px',
+                boxShadow: '0 5px 0 #60433B',
+                touchAction: 'none',
+                userSelect: 'none',
+              }}
+            >
+              {/* Visual Polyline Ribbon connecting traced letters */}
+              <svg
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                  zIndex: 8,
+                }}
+              >
+                {selectedPath.length > 1 && (
+                  <polyline
+                    points={pathPoints}
+                    fill="none"
+                    stroke="#F48E88"
+                    strokeWidth={gameState.size === 6 ? '6' : '7'}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeOpacity="0.85"
+                    style={{ filter: 'drop-shadow(0 2px 4px rgba(96, 67, 59, 0.4))' }}
+                  />
+                )}
+                {selectedPath.map((p, idx) => {
+                  const pt = getTileCenter(p.row, p.col);
+                  const isHead = idx === selectedPath.length - 1;
+                  return (
+                    <circle
+                      key={idx}
+                      cx={pt.x}
+                      cy={pt.y}
+                      r={isHead ? 5 : 3.5}
+                      fill={isHead ? '#FFD56D' : '#FFF0D9'}
+                      stroke="#60433B"
+                      strokeWidth="1.8"
+                    />
+                  );
+                })}
+              </svg>
+
+              {gameState.grid.map((row, rIdx) =>
+                row.map((letter, cIdx) => {
+                  const pathIndex = selectedPath.findIndex(
+                    (p) => p.row === rIdx && p.col === cIdx
+                  );
+                  const isSelected = pathIndex !== -1;
+                  const isLatest =
+                    selectedPath.length > 0 &&
+                    selectedPath[selectedPath.length - 1].row === rIdx &&
+                    selectedPath[selectedPath.length - 1].col === cIdx;
+
+                  return (
+                    <button
+                      key={`${rIdx}-${cIdx}`}
+                      data-boggle-tile="true"
+                      data-row={rIdx}
+                      data-col={cIdx}
+                      data-letter={letter}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        handleTraceStart(rIdx, cIdx, letter);
+                      }}
+                      onPointerEnter={() => handleTraceEnter(rIdx, cIdx, letter)}
+                      onClick={() => handleTileClick(rIdx, cIdx, letter)}
                       style={{
-                        position: 'absolute',
-                        top: '2px',
-                        right: '4px',
-                        fontSize: '0.65rem',
-                        fontWeight: 900,
-                        backgroundColor: 'var(--outline-cocoa)',
-                        color: '#fff',
-                        width: '14px',
-                        height: '14px',
-                        borderRadius: '50%',
+                        width: `${tileSize}px`,
+                        height: `${tileSize}px`,
+                        backgroundColor: isLatest
+                          ? '#FFD56D'
+                          : isSelected
+                          ? '#F5D5B9'
+                          : '#FFF0D9',
+                        border: isSelected
+                          ? '2.5px solid var(--outline-cocoa)'
+                          : '2px solid var(--outline-cocoa)',
+                        borderRadius: '10px',
+                        boxShadow: isSelected
+                          ? '0 1px 0 var(--outline-cocoa)'
+                          : '0 3.5px 0 var(--outline-cocoa)',
+                        transform: isSelected ? 'translateY(2px)' : 'none',
                         display: 'flex',
+                        flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        fontFamily: 'var(--font-heading)',
+                        fontSize: gameState.size === 6 ? '1.25rem' : '1.5rem',
+                        fontWeight: 900,
+                        color: 'var(--text-main)',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        userSelect: 'none',
+                        zIndex: 9,
+                        touchAction: 'none',
                       }}
                     >
-                      {pathIndex + 1}
-                    </span>
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
+                      <span>{letter}</span>
+                      {isSelected && (
+                        <span
+                          style={{
+                            position: 'absolute',
+                            top: '2px',
+                            right: '4px',
+                            fontSize: '0.65rem',
+                            fontWeight: 900,
+                            backgroundColor: 'var(--outline-cocoa)',
+                            color: '#fff',
+                            width: '14px',
+                            height: '14px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {pathIndex + 1}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          );
+        })()}
 
         {/* Action Buttons: Clear Path & Submit */}
         <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
@@ -442,7 +633,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
           <CozyButton
             variant="coral"
             size="sm"
-            onClick={handleSubmitWord}
+            onClick={() => handleSubmitWord()}
             disabled={!currentDisplayWord}
           >
             Submit Word
@@ -459,7 +650,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
             marginTop: '4px',
           }}
         >
-          ~ Connect adjacent letters in 8 directions ~
+          ~ Drag across adjacent letters to trace words! ~
         </div>
       </div>
 
