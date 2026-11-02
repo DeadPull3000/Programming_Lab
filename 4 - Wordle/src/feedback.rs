@@ -78,11 +78,63 @@ impl Feedback {
         &self.states
     }
 
+    /// Total number of unique feedback patterns for a 5-letter word ($3^5 = 243$).
+    pub const PATTERN_COUNT: usize = 243;
+
     /// Formats the feedback as a 5-character string (e.g. `"GGGGX"`).
     pub fn to_string_pattern(&self) -> String {
         self.states.iter().map(|s| s.as_char()).collect()
     }
+
+    /// Converts the 5-tile feedback into a unique deterministic integer identifier in the range `0..243`.
+    ///
+    /// # Base-3 Encoding Scheme
+    /// Position $i \in [0, 4]$ contributes $v_i \cdot 3^i$, where:
+    /// - `Absent` $\rightarrow 0$
+    /// - `Present` $\rightarrow 1$
+    /// - `Correct` $\rightarrow 2$
+    ///
+    /// This establishes a bijective mapping between the $3^5 = 243$ feedback states and `0..=242`.
+    #[inline]
+    pub fn to_pattern_id(&self) -> usize {
+        let mut id = 0;
+        let mut multiplier = 1;
+        for &state in &self.states {
+            let val = match state {
+                LetterFeedback::Absent => 0,
+                LetterFeedback::Present => 1,
+                LetterFeedback::Correct => 2,
+            };
+            id += val * multiplier;
+            multiplier *= 3;
+        }
+        id
+    }
+
+    /// Reconstructs a `Feedback` instance from a valid base-3 pattern ID (`0..243`).
+    ///
+    /// Returns `None` if `id >= FEEDBACK_PATTERN_COUNT`.
+    #[inline]
+    pub fn from_pattern_id(mut id: usize) -> Option<Self> {
+        if id >= Self::PATTERN_COUNT {
+            return None;
+        }
+        let mut states = [LetterFeedback::Absent; WORD_LENGTH];
+        for state in &mut states {
+            *state = match id % 3 {
+                0 => LetterFeedback::Absent,
+                1 => LetterFeedback::Present,
+                2 => LetterFeedback::Correct,
+                _ => unreachable!(),
+            };
+            id /= 3;
+        }
+        Some(Self { states })
+    }
 }
+
+/// The total number of unique feedback patterns for a 5-letter word ($3^5 = 243$).
+pub const FEEDBACK_PATTERN_COUNT: usize = Feedback::PATTERN_COUNT;
 
 impl fmt::Display for Feedback {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -297,5 +349,47 @@ pub mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_pattern_id_round_trip_all_243() {
+        use std::collections::HashSet;
+        let mut seen_ids = HashSet::new();
+
+        for id in 0..FEEDBACK_PATTERN_COUNT {
+            let fb = Feedback::from_pattern_id(id).expect("valid ID in range 0..243");
+            let encoded = fb.to_pattern_id();
+            assert_eq!(encoded, id, "Round-trip failed for pattern ID {id}");
+            assert!(seen_ids.insert(encoded), "Duplicate pattern ID: {id}");
+        }
+
+        assert_eq!(seen_ids.len(), 243);
+        assert_eq!(Feedback::from_pattern_id(243), None);
+        assert_eq!(Feedback::from_pattern_id(1000), None);
+    }
+
+    #[test]
+    fn test_pattern_id_specific_extremes() {
+        // All Absent = 0
+        let all_absent = Feedback::new([LetterFeedback::Absent; 5]);
+        assert_eq!(all_absent.to_pattern_id(), 0);
+        assert_eq!(Feedback::from_pattern_id(0), Some(all_absent));
+
+        // All Correct = 242 (2 + 2*3 + 2*9 + 2*27 + 2*81 = 2 * 121 = 242)
+        let all_correct = Feedback::new([LetterFeedback::Correct; 5]);
+        assert_eq!(all_correct.to_pattern_id(), 242);
+        assert_eq!(Feedback::from_pattern_id(242), Some(all_correct));
+
+        // Mixed pattern: [Present, Absent, Correct, Absent, Present]
+        // 1*1 + 0*3 + 2*9 + 0*27 + 1*81 = 1 + 18 + 81 = 100
+        let mixed = Feedback::new([
+            LetterFeedback::Present,
+            LetterFeedback::Absent,
+            LetterFeedback::Correct,
+            LetterFeedback::Absent,
+            LetterFeedback::Present,
+        ]);
+        assert_eq!(mixed.to_pattern_id(), 100);
+        assert_eq!(Feedback::from_pattern_id(100), Some(mixed));
     }
 }

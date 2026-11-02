@@ -64,6 +64,7 @@ impl From<io::Error> for DictionaryError {
 #[derive(Debug)]
 pub struct WordleDictionary {
     accepted_guesses: Trie,
+    legal_guesses: Vec<Word>,
     answers: Vec<Word>,
     using_fallback_answers: bool,
 }
@@ -92,6 +93,7 @@ impl WordleDictionary {
     /// Constructs a `WordleDictionary` directly from an existing `Trie` and answer slice.
     ///
     /// Validates that every word in `answers` is present in `accepted_guesses`.
+    /// Automatically traverses the Trie to extract all 5-letter legal guesses.
     pub fn new(accepted_guesses: Trie, answers: Vec<Word>) -> Result<Self, DictionaryError> {
         if answers.is_empty() {
             return Err(DictionaryError::EmptyAnswerPool);
@@ -106,8 +108,37 @@ impl WordleDictionary {
             }
         }
 
+        let legal_guesses = Self::extract_five_letter_words_from_trie(&accepted_guesses);
+
         Ok(Self {
             accepted_guesses,
+            legal_guesses,
+            answers,
+            using_fallback_answers: false,
+        })
+    }
+
+    /// Constructs a `WordleDictionary` with an explicit legal guess collection.
+    pub fn with_legal_guesses(
+        accepted_guesses: Trie,
+        legal_guesses: Vec<Word>,
+        answers: Vec<Word>,
+    ) -> Result<Self, DictionaryError> {
+        if answers.is_empty() {
+            return Err(DictionaryError::EmptyAnswerPool);
+        }
+
+        for answer in &answers {
+            if !accepted_guesses.contains(answer.as_str()) {
+                return Err(DictionaryError::AnswerNotInAcceptedGuesses(
+                    answer.as_str().to_string(),
+                ));
+            }
+        }
+
+        Ok(Self {
+            accepted_guesses,
+            legal_guesses,
             answers,
             using_fallback_answers: false,
         })
@@ -126,12 +157,14 @@ impl WordleDictionary {
         })?;
 
         let trie = Self::load_trie_from_file(&dict_path)?;
+        let legal_guesses = Self::extract_five_letter_words(&dict_path)?;
 
         if let Some(answer_path) = Self::find_existing_path(Self::CANDIDATE_ANSWER_PATHS) {
             match Self::load_answers_from_file(answer_path, &trie) {
                 Ok(answers) if !answers.is_empty() => {
                     return Ok(Self {
                         accepted_guesses: trie,
+                        legal_guesses,
                         answers,
                         using_fallback_answers: false,
                     });
@@ -142,15 +175,15 @@ impl WordleDictionary {
             }
         }
 
-        // Fallback: extract 5-letter words from dictionary
-        let fallback_answers = Self::extract_five_letter_words(dict_path)?;
-        if fallback_answers.is_empty() {
+        // Fallback: use legal 5-letter words from dictionary as answer pool
+        if legal_guesses.is_empty() {
             return Err(DictionaryError::EmptyAnswerPool);
         }
 
         Ok(Self {
             accepted_guesses: trie,
-            answers: fallback_answers,
+            answers: legal_guesses.clone(),
+            legal_guesses,
             using_fallback_answers: true,
         })
     }
@@ -253,6 +286,53 @@ impl WordleDictionary {
         }
 
         Ok(words)
+    }
+
+    /// Recursively traverses a 26-ary `Trie` using its root cursor to extract all
+    /// valid 5-letter words in lexicographical order.
+    pub fn extract_five_letter_words_from_trie(trie: &Trie) -> Vec<Word> {
+        let mut results = Vec::new();
+        let mut prefix = Vec::with_capacity(WORD_LENGTH);
+        Self::dfs_trie_five_letter(trie.root_cursor(), &mut prefix, &mut results);
+        results
+    }
+
+    fn dfs_trie_five_letter(
+        cursor: trie::TrieCursor<'_>,
+        prefix: &mut Vec<u8>,
+        results: &mut Vec<Word>,
+    ) {
+        if prefix.len() == WORD_LENGTH {
+            if cursor.is_word() {
+                if let Ok(s) = std::str::from_utf8(prefix) {
+                    if let Ok(w) = Word::parse(s) {
+                        results.push(w);
+                    }
+                }
+            }
+            return;
+        }
+
+        for b in b'A'..=b'Z' {
+            let ch = b as char;
+            if let Some(next) = cursor.advance(ch) {
+                prefix.push(b);
+                Self::dfs_trie_five_letter(next, prefix, results);
+                prefix.pop();
+            }
+        }
+    }
+
+    /// Returns an immutable slice of all legal 5-letter guesses in the dictionary.
+    #[inline]
+    pub fn legal_guesses(&self) -> &[Word] {
+        &self.legal_guesses
+    }
+
+    /// Returns the number of legal 5-letter guesses in the dictionary.
+    #[inline]
+    pub fn legal_guess_count(&self) -> usize {
+        self.legal_guesses.len()
     }
 
     /// Verifies if a word is an accepted guess in the Trie dictionary.
