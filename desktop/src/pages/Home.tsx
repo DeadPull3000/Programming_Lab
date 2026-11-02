@@ -38,7 +38,7 @@ export const Home: React.FC<HomeProps> = ({ onSelectGame, summary, stats }) => {
   const [showGameDrawer, setShowGameDrawer] = useState(false);
 
   const handleCatClick = (name: string, speech: string) => {
-    sound.playMeow();
+    sound.playPurr();
     setActiveSpeech(`${name}: "${speech}"`);
     setTimeout(() => {
       setActiveSpeech((prev) => (prev?.startsWith(name) ? null : prev));

@@ -432,6 +432,12 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
       >
         {/* Left Paw */}
         <div
+          onClick={() => {
+            sound.playPurr();
+            setCatSpeech('Purrrr... Cozy paws resting on the puzzle desk!');
+            setTimeout(() => setCatSpeech(null), 3500);
+          }}
+          title="Pet the paws to hear a purr!"
           style={{
             width: '110px',
             height: '95px',
@@ -444,6 +450,15 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
             justifyContent: 'center',
             paddingBottom: '20px',
             position: 'relative',
+            pointerEvents: 'auto',
+            cursor: 'pointer',
+            transition: 'transform 0.1s ease',
+          }}
+          onMouseDown={(e) => {
+            (e.currentTarget as HTMLDivElement).style.transform = 'translateY(4px)';
+          }}
+          onMouseUp={(e) => {
+            (e.currentTarget as HTMLDivElement).style.transform = 'none';
           }}
         >
           <div
@@ -495,6 +510,12 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
 
         {/* Right Paw */}
         <div
+          onClick={() => {
+            sound.playPurr();
+            setCatSpeech('Purrrr... Happy cat watching you solve words!');
+            setTimeout(() => setCatSpeech(null), 3500);
+          }}
+          title="Pet the paws to hear a purr!"
           style={{
             width: '110px',
             height: '95px',
@@ -507,6 +528,15 @@ export const DiaryBook: React.FC<DiaryBookProps> = ({
             justifyContent: 'center',
             paddingBottom: '20px',
             position: 'relative',
+            pointerEvents: 'auto',
+            cursor: 'pointer',
+            transition: 'transform 0.1s ease',
+          }}
+          onMouseDown={(e) => {
+            (e.currentTarget as HTMLDivElement).style.transform = 'translateY(4px)';
+          }}
+          onMouseUp={(e) => {
+            (e.currentTarget as HTMLDivElement).style.transform = 'none';
           }}
         >
           <div

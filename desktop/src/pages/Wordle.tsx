@@ -453,7 +453,13 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <PrincessCat size={42} />
+            <div
+              onClick={() => sound.playPurr()}
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              title="Tap Princess to hear her purr!"
+            >
+              <PrincessCat size={42} />
+            </div>
             <div>
               <h3 style={{ fontSize: '1.2rem', margin: 0, color: 'var(--text-main)' }}>
                 Little Helper

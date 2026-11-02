@@ -677,7 +677,13 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <SnowyCat size={44} />
+            <div
+              onClick={() => sound.playPurr()}
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              title="Tap Snowy to hear her purr!"
+            >
+              <SnowyCat size={44} />
+            </div>
             <div>
               <div style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--text-main)' }}>
                 Score: {gameState.score} pts

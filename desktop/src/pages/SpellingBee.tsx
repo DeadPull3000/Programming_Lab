@@ -409,7 +409,13 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <BennyCat size={44} />
+            <div
+              onClick={() => sound.playPurr()}
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              title="Tap Benny to hear him purr!"
+            >
+              <BennyCat size={44} />
+            </div>
             <div>
               <div style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--text-main)' }}>
                 Rank: {gameState.rank}

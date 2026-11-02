@@ -146,27 +146,88 @@ class SoundService {
     osc.stop(ctx.currentTime + 0.17);
   }
 
-  // Cute cat purr / meow chirrup
-  public playMeow() {
+  // Realistic, cozy cat purr with rhythmic laryngeal tremor and soft greeting chirp
+  public playPurr() {
     const ctx = this.getContext();
     if (!ctx) return;
 
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    // 1. Gentle kitten chirrup / greeting mew at the start (0.24s)
+    const chirpOsc = ctx.createOscillator();
+    const chirpGain = ctx.createGain();
+    chirpOsc.type = 'sine';
+    chirpOsc.frequency.setValueAtTime(420, ctx.currentTime);
+    chirpOsc.frequency.exponentialRampToValueAtTime(640, ctx.currentTime + 0.1);
+    chirpOsc.frequency.exponentialRampToValueAtTime(490, ctx.currentTime + 0.22);
 
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(400, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(650, ctx.currentTime + 0.12);
-    osc.frequency.exponentialRampToValueAtTime(520, ctx.currentTime + 0.28);
+    chirpGain.gain.setValueAtTime(0.08, ctx.currentTime);
+    chirpGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.24);
 
-    gain.gain.setValueAtTime(0.12, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    chirpOsc.connect(chirpGain);
+    chirpGain.connect(ctx.destination);
+    chirpOsc.start();
+    chirpOsc.stop(ctx.currentTime + 0.25);
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    // 2. Synthesize a 1.4s rhythmic cat purr buffer with ~25 Hz laryngeal modulation
+    const duration = 1.4;
+    const numSamples = Math.floor(ctx.sampleRate * duration);
+    const buffer = ctx.createBuffer(1, numSamples, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
 
-    osc.start();
-    osc.stop(ctx.currentTime + 0.3);
+    for (let i = 0; i < numSamples; i++) {
+      const t = i / ctx.sampleRate;
+
+      // Two breath cycles (inhalation ~0.65s, exhalation ~0.75s)
+      const breathPhase = (t / duration) * Math.PI * 2;
+      const breathEnv = 0.55 + 0.45 * Math.sin(breathPhase);
+
+      // Feline purr tremor modulation: 24-26 Hz laryngeal flutter
+      const tremor = (Math.sin(2 * Math.PI * 25 * t) + 1) / 2;
+
+      // Fundamental chest vibration: 85 - 95 Hz
+      const f0 = 88 + 5 * Math.sin(breathPhase);
+      const wave1 = Math.sin(2 * Math.PI * f0 * t);
+      const waveSub = 0.45 * Math.sin(2 * Math.PI * (f0 * 0.5) * t);
+      const waveHarm = 0.3 * Math.sin(2 * Math.PI * (f0 * 2) * t);
+
+      // Subtle vocal airway air turbulence / breath friction
+      const airNoise = (Math.random() * 2 - 1) * 0.08;
+
+      // Smooth window envelope: fade in, sustain, gentle fade out
+      const windowEnv = Math.sin(Math.PI * (i / numSamples));
+
+      data[i] =
+        (wave1 + waveSub + waveHarm + airNoise) *
+        (0.25 + 0.75 * tremor) *
+        breathEnv *
+        windowEnv *
+        0.32;
+    }
+
+    const purrSource = ctx.createBufferSource();
+    purrSource.buffer = buffer;
+
+    // Filter through warm lowpass filter to produce deep chest rumble
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(260, ctx.currentTime);
+    filter.Q.value = 1.6;
+
+    const purrGain = ctx.createGain();
+    purrGain.gain.setValueAtTime(0.001, ctx.currentTime);
+    purrGain.gain.linearRampToValueAtTime(0.38, ctx.currentTime + 0.1);
+    purrGain.gain.setValueAtTime(0.38, ctx.currentTime + duration - 0.2);
+    purrGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+    purrSource.connect(filter);
+    filter.connect(purrGain);
+    purrGain.connect(ctx.destination);
+
+    purrSource.start(ctx.currentTime + 0.04);
+  }
+
+  // Backward compatible alias
+  public playMeow() {
+    this.playPurr();
   }
 
   // Crisp paper page flip rustle
