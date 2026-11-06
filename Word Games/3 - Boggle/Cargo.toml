@@ -1,0 +1,8 @@
+[package]
+name = "boggle"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+trie = { path = "../1 - Library Trie/trie" }
+rand = "0.8"

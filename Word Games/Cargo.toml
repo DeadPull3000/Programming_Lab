@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "1 - Library Trie/trie",
+    "1 - Library Trie/trie-cli",
+    "2 - Spelling Bee",
+    "3 - Boggle",
+    "4 - Wordle",
+    "arcade-server",
+]
+resolver = "2"

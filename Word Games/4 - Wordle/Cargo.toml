@@ -1,0 +1,17 @@
+[package]
+name = "wordle"
+version = "0.1.0"
+edition = "2021"
+description = "A standalone Wordle game in Rust reusing a shared Trie dictionary"
+
+[dependencies]
+trie = { path = "../1 - Library Trie/trie" }
+rand = "0.8.8"
+
+[[bin]]
+name = "wordle"
+path = "src/main.rs"
+
+[lib]
+name = "wordle"
+path = "src/lib.rs"

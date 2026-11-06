@@ -1,0 +1,59 @@
+:root {
+  /* Cozy Palette from Visual References */
+  --bg-mint: #B8D8AE;
+  --bg-lavender: #EEDDF7;
+  --panel-cream: #FFF0D9;
+  --panel-peach: #F5D5B9;
+  --panel-paper: #FAF2E3;
+  --accent-coral: #F48E88;
+  --accent-blue: #93DFE8;
+  --highlight-yellow: #FFD56D;
+  --outline-cocoa: #60433B;
+  --text-main: #60433B;
+  --text-muted: #88685A;
+  --color-success: #8CCB79;
+  --color-present: #FFD56D;
+  --color-absent: #C6BCB5;
+  --color-error: #E77978;
+
+  /* Desk wood tones */
+  --wood-desk: #9C7255;
+  --wood-desk-dark: #7A533C;
+  --wood-grain: rgba(96, 67, 59, 0.12);
+
+  /* Tactile Drop Shadows */
+  --shadow-tactile: 0 5px 0 var(--outline-cocoa);
+  --shadow-tactile-sm: 0 3px 0 var(--outline-cocoa);
+  --shadow-tactile-lg: 0 8px 0 var(--outline-cocoa);
+  --shadow-soft: 0 10px 24px rgba(96, 67, 59, 0.18);
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-pill: 9999px;
+
+  /* Typography */
+  --font-heading: 'Fredoka', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-handwritten: 'Caveat', 'Patrick Hand', cursive, sans-serif;
+}
+
+/* Reduced Motion Mode */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.reduced-motion *,
+.reduced-motion ::before,
+.reduced-motion ::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

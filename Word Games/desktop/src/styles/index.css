@@ -1,0 +1,253 @@
+@import './tokens.css';
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--text-main);
+  background-color: var(--bg-mint);
+  background-image: 
+    radial-gradient(#a3c896 1.5px, transparent 1.5px),
+    linear-gradient(to bottom, #b4d8aa, #c1e2b8);
+  background-size: 24px 24px, 100% 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: 0.5px;
+}
+
+button {
+  font-family: var(--font-heading);
+  cursor: pointer;
+  border: none;
+  background: none;
+  outline: none;
+}
+
+/* Custom Cozy Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--panel-peach);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--outline-cocoa);
+  border: 2px solid var(--panel-cream);
+  border-radius: var(--radius-pill);
+}
+
+/* Reusable Cozy UI Classes */
+
+.cozy-card {
+  background: var(--panel-cream);
+  border: 3.5px solid var(--outline-cocoa);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-tactile);
+  position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cozy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border: 3.5px solid var(--outline-cocoa);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-tactile);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.5px;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  user-select: none;
+}
+
+.cozy-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 7px 0 var(--outline-cocoa);
+}
+
+.cozy-btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 var(--outline-cocoa);
+}
+
+.cozy-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: var(--shadow-tactile-sm);
+}
+
+/* Washi Tape Ribbon Effect */
+.washi-tape {
+  position: relative;
+  display: inline-block;
+  padding: 8px 24px;
+  background: rgba(245, 213, 185, 0.95);
+  border: 2.5px dashed var(--outline-cocoa);
+  border-radius: 6px;
+  box-shadow: 0 3px 0 rgba(96, 67, 59, 0.2);
+  transform: rotate(-1.5deg);
+  font-family: var(--font-heading);
+}
+
+.washi-tape-coral {
+  background: #f8b4af;
+  border-color: #8c4c47;
+  color: #5a2824;
+}
+
+.washi-tape-mint {
+  background: #c3e2be;
+  border-color: #55794f;
+  color: #314b2d;
+}
+
+.washi-tape-yellow {
+  background: #ffe399;
+  border-color: #8c6e26;
+  color: #563f0d;
+}
+
+/* Scalloped Pink PLAY Badge */
+.scalloped-play-badge {
+  width: 140px;
+  height: 90px;
+  background: #F8B4BD;
+  border: 3.5px solid var(--outline-cocoa);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-tactile-lg);
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.scalloped-play-badge::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 2px dashed #FFF0D9;
+  border-radius: 50%;
+}
+
+.scalloped-play-badge:hover {
+  transform: scale(1.06) rotate(-2deg);
+  box-shadow: 0 10px 0 var(--outline-cocoa);
+}
+
+.scalloped-play-badge:active {
+  transform: scale(0.96) translateY(4px);
+  box-shadow: 0 3px 0 var(--outline-cocoa);
+}
+
+/* Animations */
+@keyframes tilePop {
+  0% { transform: scale(0.8); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@keyframes tileFlip {
+  0% { transform: rotateX(0deg); }
+  50% { transform: rotateX(90deg); }
+  100% { transform: rotateX(0deg); }
+}
+
+@keyframes boardShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+@keyframes softFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes purrVibe {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(1deg); }
+  75% { transform: rotate(-1deg); }
+}
+
+.animate-pop {
+  animation: tilePop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.animate-shake {
+  animation: boardShake 0.4s ease-in-out;
+}
+
+.animate-float {
+  animation: softFloat 3s ease-in-out infinite;
+}
+
+.animate-purr {
+  animation: purrVibe 0.3s ease-in-out infinite;
+}
+
+/* Honeycomb Grid */
+.honeycomb-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: -14px;
+  margin: 16px 0;
+}
+
+.honeycomb-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: -16px;
+}
+.honeycomb-row:first-child {
+  margin-top: 0;
+}
+
+.hex-tile-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: transform 0.12s ease, filter 0.12s ease;
+  filter: drop-shadow(0 4px 0 var(--outline-cocoa));
+}
+
+.hex-tile-btn:hover {
+  transform: translateY(-3px) scale(1.06);
+  filter: drop-shadow(0 7px 0 var(--outline-cocoa));
+}
+
+.hex-tile-btn:active {
+  transform: translateY(2px) scale(0.97);
+  filter: drop-shadow(0 2px 0 var(--outline-cocoa));
+}
+
+.hex-tile-btn.center {
+  filter: drop-shadow(0 5px 0 var(--outline-cocoa));
+}
+
