@@ -1,12 +1,46 @@
 # Word Games in Rust: Programming Lab Suite
 
-An industrial-grade, memory-safe, and high-performance dictionary and word-puzzle game ecosystem in Rust, developed for an academic Programming Lab submission.
+A dictionary and word-puzzle game ecosystem in Rust, developed for an academic Programming Lab submission.
 
 The suite comprises four interconnected components sharing a unified, game-independent 26-way prefix tree (Trie) dictionary engine:
 1. **Encapsulated 26-ary Trie Dictionary Library & Interactive CLI** (`1 - Library Trie/`)
 2. **NYT-Style Spelling Bee Game Engine & CLI** (`2 - Spelling Bee/`)
 3. **Multi-Dimension Boggle Game Engine, Solver & CLI** (`3 - Boggle/`)
 4. **Standalone Wordle Application & Candidate Solver** (`4 - Wordle/`)
+
+---
+
+## Desktop arcade
+
+The React/TypeScript interface in `desktop/` connects to the Rust API in
+`arcade-server/`. Install Rust and Node.js 20 or later. From the workspace
+root, run the backend in one terminal:
+
+```powershell
+cargo run -p arcade-server
+```
+
+Start the interface in another terminal:
+
+```powershell
+cd desktop
+npm ci
+npm run dev
+```
+
+Open [the arcade](http://127.0.0.1:5173). The interface uses Vite's `/api` proxy;
+the backend binds to `127.0.0.1:4567`. `npm run build` checks TypeScript and builds
+the interface; `npm run preview` serves the build on port 4173 with the same API
+proxy. Keep the Rust backend running for either mode.
+
+Statistics and settings are stored in `arcade_stats.json` and
+`arcade_settings.json` in the backend's working directory. Set `ARCADE_DATA_DIR`
+to select another directory. Invalid existing files produce an error and remain
+intact. Active game sessions stay in memory and end when the backend exits.
+Boggle rounds last 180 seconds, including time spent on other pages.
+
+See [review changes and verification](docs/11-maintenance-and-validation.md)
+and [new game ideas using the trie](docs/12-trie-game-ideas.md).
 
 ---
 
@@ -112,7 +146,7 @@ All three game packages depend directly on the `trie` library (`trie = { path = 
 Execute all commands from the workspace root (`c:\Users\User\Downloads\Programming Lab\Word Games`):
 
 ```powershell
-# 1. Run all 150 unit, doc, and integration tests across all packages
+# 1. Run unit, doc, and integration tests across all packages
 cargo test --workspace
 
 # 2. Run static analysis (Clippy) with warnings treated as errors
@@ -173,23 +207,23 @@ Interactive dictionary management commands: `find`, `insert`, `delete`, `load`, 
 
 ## 7. Technical Documentation Suite
 
-The complete technical report suite is located in the [`docs/`](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs) directory:
+The complete technical report suite is located in the [`docs/`](docs) directory:
 
 ### Core Lab Reports:
-1. [**01. Project Overview & Requirements Traceability**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/01-project-overview.md)
-2. [**02. System Architecture & Component Interaction**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/02-system-architecture.md)
-3. [**03. Trie Implementation & Cursor Mechanics**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/03-trie-implementation.md)
-4. [**04. Spelling Bee Implementation & Solver**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/04-spelling-bee-implementation.md)
-5. [**05. Boggle Implementation & Pathfinding**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/05-boggle-implementation.md)
-6. [**06. Testing, Verification & Validation Report**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/06-testing-and-validation.md)
-7. [**07. Terminal Evidence & Execution Transcripts**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/07-terminal-evidence.md)
-8. [**08. Design Decisions, Trade-offs & Rust Concepts**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/08-design-decisions-and-tradeoffs.md)
-9. [**09. Known Limitations & Future Enhancements**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/09-known-limitations.md)
-10. [**10. Technical Viva Voce Examination Guide**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/10-viva-preparation.md)
+1. [**01. Project Overview & Requirements Traceability**](docs/01-project-overview.md)
+2. [**02. System Architecture & Component Interaction**](docs/02-system-architecture.md)
+3. [**03. Trie Implementation & Cursor Mechanics**](docs/03-trie-implementation.md)
+4. [**04. Spelling Bee Implementation & Solver**](docs/04-spelling-bee-implementation.md)
+5. [**05. Boggle Implementation & Pathfinding**](docs/05-boggle-implementation.md)
+6. [**06. Testing, Verification & Validation Report**](docs/06-testing-and-validation.md)
+7. [**07. Terminal Evidence & Execution Transcripts**](docs/07-terminal-evidence.md)
+8. [**08. Design Decisions, Trade-offs & Rust Concepts**](docs/08-design-decisions-and-tradeoffs.md)
+9. [**09. Known Limitations & Future Enhancements**](docs/09-known-limitations.md)
+10. [**10. Technical Viva Voce Examination Guide**](docs/10-viva-preparation.md)
 
 ### Wordle Deep-Dive Reports:
-11. [**Wordle Architecture & System Design**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/wordle-architecture.md)
-12. [**Wordle Two-Pass Feedback Algorithm & Mathematical Proofs**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/wordle-feedback-algorithm.md)
-13. [**Wordle Game Engine & State Management**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/wordle-game-engine.md)
-14. [**Wordle Testing, Verification & Validation Report**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/wordle-testing.md)
-15. [**Wordle Design Decisions, Trade-offs & Rust Concepts**](file:///c:/Users/User/Downloads/Programming%20Lab/Word%20Games/docs/wordle-design-decisions.md)
+11. [**Wordle Architecture & System Design**](docs/wordle-architecture.md)
+12. [**Wordle Two-Pass Feedback Algorithm & Mathematical Proofs**](docs/wordle-feedback-algorithm.md)
+13. [**Wordle Game Engine & State Management**](docs/wordle-game-engine.md)
+14. [**Wordle Testing, Verification & Validation Report**](docs/wordle-testing.md)
+15. [**Wordle Design Decisions, Trade-offs & Rust Concepts**](docs/wordle-design-decisions.md)

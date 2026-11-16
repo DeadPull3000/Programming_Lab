@@ -1,5 +1,7 @@
 # 09. Known Limitations, Boundary Conditions & Future Enhancements
 
+> The runtime and arcade notes in [maintenance and validation](11-maintenance-and-validation.md) describe the current implementation. Benchmark numbers below are historical observations, not performance guarantees.
+
 This document objectively analyzes the confirmed boundaries, lexical constraints, architectural trade-offs, and planned future enhancements of the Word Games software suite.
 
 ---
