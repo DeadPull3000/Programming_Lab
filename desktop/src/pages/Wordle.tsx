@@ -10,6 +10,7 @@ import {
   WordleState,
 } from '../types/arcade';
 import { arcadeApi } from '../services/api';
+import { getGameTimers } from '../services/gameTimers';
 import { CozyButton } from '../components/CozyButton';
 import { CozyModal } from '../components/CozyModal';
 import { sound } from '../services/sound';
@@ -49,6 +50,42 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete, active =
   // End of game modal
   const [showEndModal, setShowEndModal] = useState(false);
 
+  // Custom Speedrun Timer
+  const [speedrunSecs, setSpeedrunSecs] = useState<number>(() => getGameTimers().wordleSecs);
+  const [speedrunTimeLeft, setSpeedrunTimeLeft] = useState<number>(() => getGameTimers().wordleSecs);
+  const [speedrunExpired, setSpeedrunExpired] = useState<boolean>(false);
+
+  // Sync with Timer configuration changes
+  useEffect(() => {
+    const handleTimersChange = () => {
+      const updated = getGameTimers().wordleSecs;
+      setSpeedrunSecs(updated);
+      setSpeedrunTimeLeft(updated);
+      setSpeedrunExpired(false);
+    };
+    window.addEventListener('game-timers-changed', handleTimersChange);
+    return () => window.removeEventListener('game-timers-changed', handleTimersChange);
+  }, []);
+
+  // Speedrun countdown interval effect
+  useEffect(() => {
+    if (speedrunSecs <= 0 || !active || gameState?.game_status !== 'InProgress' || speedrunExpired) return;
+
+    const interval = setInterval(() => {
+      setSpeedrunTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setSpeedrunExpired(true);
+          sound.playInvalid();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [speedrunSecs, active, gameState?.game_status, speedrunExpired]);
+
   // Load existing state or start a new game
   const fetchState = useCallback(async () => {
     try {
@@ -84,6 +121,10 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete, active =
       setErrorMessage(null);
       setHintData(null);
       setShowEndModal(false);
+      setSpeedrunExpired(false);
+      const timers = getGameTimers();
+      setSpeedrunSecs(timers.wordleSecs);
+      setSpeedrunTimeLeft(timers.wordleSecs);
       const state = await arcadeApi.startWordle();
       setGameState(state);
       sound.playSuccess();
@@ -247,6 +288,12 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete, active =
   const guesses = gameState.guesses || [];
   const currentRowIndex = guesses.length;
 
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div
       style={{
@@ -287,17 +334,93 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete, active =
             </h2>
           </div>
 
-          <div
-            style={{
-              fontFamily: 'var(--font-handwritten)',
-              fontSize: '1.2rem',
-              color: '#6E4E37',
-              fontWeight: 700,
-            }}
-          >
-            Attempt {Math.min(guesses.length + 1, 6)} of 6
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              title={speedrunSecs > 0 ? 'Speedrun Timer (configure in Timer tab)' : 'Untimed Zen Mode (configure in Timer tab)'}
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '1.05rem',
+                fontWeight: 900,
+                color: speedrunSecs > 0 && speedrunTimeLeft <= 20 ? '#c92a2a' : 'var(--text-main)',
+                backgroundColor: '#FAF0DE',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                border: '1.5px solid var(--outline-cocoa)',
+              }}
+            >
+              ⏱️ {speedrunSecs > 0 ? formatTimer(speedrunTimeLeft) : 'Untimed'}
+            </div>
+
+            <div
+              style={{
+                fontFamily: 'var(--font-handwritten)',
+                fontSize: '1.2rem',
+                color: '#6E4E37',
+                fontWeight: 700,
+              }}
+            >
+              Attempt {Math.min(guesses.length + 1, 6)} of 6
+            </div>
           </div>
         </div>
+
+        {/* Speedrun Time Expired Banner */}
+        {speedrunExpired && speedrunSecs > 0 && (
+          <div
+            className="animate-pop"
+            style={{
+              padding: '6px 14px',
+              borderRadius: 'var(--radius-pill)',
+              border: '2px solid #a83d38',
+              backgroundColor: '#FFD3D1',
+              color: '#721C24',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              marginBottom: '6px',
+            }}
+          >
+            <span>⏰ Time&apos;s Up! Speedrun target expired.</span>
+            <button
+              onClick={() => {
+                setSpeedrunExpired(false);
+                setSpeedrunTimeLeft(speedrunSecs);
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid #721C24',
+                borderRadius: '4px',
+                padding: '1px 6px',
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                color: '#721C24',
+              }}
+            >
+              Reset Timer
+            </button>
+            <button
+              onClick={() => {
+                setSpeedrunExpired(false);
+                setSpeedrunSecs(0);
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid #721C24',
+                borderRadius: '4px',
+                padding: '1px 6px',
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                color: '#721C24',
+              }}
+            >
+              Continue Zen
+            </button>
+          </div>
+        )}
 
         {/* Error notification */}
         {errorMessage && (

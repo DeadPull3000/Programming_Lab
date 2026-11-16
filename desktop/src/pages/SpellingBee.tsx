@@ -8,6 +8,7 @@ import {
   SpellingBeeState,
 } from '../types/arcade';
 import { arcadeApi } from '../services/api';
+import { getGameTimers } from '../services/gameTimers';
 import { CozyButton } from '../components/CozyButton';
 import { CozyModal } from '../components/CozyModal';
 import { sound } from '../services/sound';
@@ -93,6 +94,42 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
   const [showQueenModal, setShowQueenModal] = useState(false);
   const [showPangramToast, setShowPangramToast] = useState(false);
 
+  // Custom blitz timer
+  const [blitzSecs, setBlitzSecs] = useState<number>(() => getGameTimers().spellingBeeSecs);
+  const [blitzTimeLeft, setBlitzTimeLeft] = useState<number>(() => getGameTimers().spellingBeeSecs);
+  const [blitzExpired, setBlitzExpired] = useState<boolean>(false);
+
+  // Sync with Timer configuration changes
+  useEffect(() => {
+    const handleTimersChange = () => {
+      const updated = getGameTimers().spellingBeeSecs;
+      setBlitzSecs(updated);
+      setBlitzTimeLeft(updated);
+      setBlitzExpired(false);
+    };
+    window.addEventListener('game-timers-changed', handleTimersChange);
+    return () => window.removeEventListener('game-timers-changed', handleTimersChange);
+  }, []);
+
+  // Blitz countdown interval effect
+  useEffect(() => {
+    if (blitzSecs <= 0 || !active || gameState?.is_queen_bee || blitzExpired) return;
+
+    const interval = setInterval(() => {
+      setBlitzTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setBlitzExpired(true);
+          sound.playInvalid();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [blitzSecs, active, gameState?.is_queen_bee, blitzExpired]);
+
   // Fetch or start game
   const fetchState = useCallback(async () => {
     try {
@@ -127,6 +164,10 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
       setCurrentInput('');
       setFeedbackMessage(null);
       setHintsData(null);
+      setBlitzExpired(false);
+      const timers = getGameTimers();
+      setBlitzSecs(timers.spellingBeeSecs);
+      setBlitzTimeLeft(timers.spellingBeeSecs);
       const state = await arcadeApi.startSpellingBee();
       setGameState(state);
       sound.playSuccess();
@@ -256,6 +297,12 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
 
   const outer = gameState.outer_letters;
 
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div
       style={{
@@ -295,17 +342,93 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
             </h2>
           </div>
 
-          <div
-            style={{
-              fontFamily: 'var(--font-handwritten)',
-              fontSize: '1.2rem',
-              color: '#6E4E37',
-              fontWeight: 700,
-            }}
-          >
-            Center: [ {gameState.main_letter} ]
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              title={blitzSecs > 0 ? 'Blitz Countdown Timer (configure in Timer tab)' : 'Untimed Zen Mode (configure in Timer tab)'}
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '1.05rem',
+                fontWeight: 900,
+                color: blitzSecs > 0 && blitzTimeLeft <= 30 ? '#c92a2a' : 'var(--text-main)',
+                backgroundColor: '#FAF0DE',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                border: '1.5px solid var(--outline-cocoa)',
+              }}
+            >
+              ⏱️ {blitzSecs > 0 ? formatTimer(blitzTimeLeft) : 'Untimed'}
+            </div>
+
+            <div
+              style={{
+                fontFamily: 'var(--font-handwritten)',
+                fontSize: '1.2rem',
+                color: '#6E4E37',
+                fontWeight: 700,
+              }}
+            >
+              Center: [ {gameState.main_letter} ]
+            </div>
           </div>
         </div>
+
+        {/* Blitz Time Expired Alert Banner */}
+        {blitzExpired && blitzSecs > 0 && (
+          <div
+            className="animate-pop"
+            style={{
+              padding: '6px 14px',
+              borderRadius: 'var(--radius-pill)',
+              border: '2px solid #a83d38',
+              backgroundColor: '#FFD3D1',
+              color: '#721C24',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              margin: '4px 0',
+            }}
+          >
+            <span>⏰ Time&apos;s Up! Blitz round complete.</span>
+            <button
+              onClick={() => {
+                setBlitzExpired(false);
+                setBlitzTimeLeft(blitzSecs);
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid #721C24',
+                borderRadius: '4px',
+                padding: '1px 6px',
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                color: '#721C24',
+              }}
+            >
+              Reset Timer
+            </button>
+            <button
+              onClick={() => {
+                setBlitzExpired(false);
+                setBlitzSecs(0);
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid #721C24',
+                borderRadius: '4px',
+                padding: '1px 6px',
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                color: '#721C24',
+              }}
+            >
+              Continue Zen
+            </button>
+          </div>
+        )}
 
         {/* Word Input Display Box */}
         <div

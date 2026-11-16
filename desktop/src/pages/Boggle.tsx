@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { BoggleEndResponse, BoggleState } from '../types/arcade';
 import { arcadeApi } from '../services/api';
+import { getGameTimers } from '../services/gameTimers';
 import { CozyButton } from '../components/CozyButton';
 import { CozyModal } from '../components/CozyModal';
 import { sound } from '../services/sound';
@@ -63,7 +64,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete, active =
       setLoading(true);
       let state = await arcadeApi.getBoggleState();
       if (state.cells.length === 0) {
-        state = await arcadeApi.startBoggle(4);
+        state = await arcadeApi.startBoggle(4, getGameTimers().boggleSecs);
       }
       setGameState(state);
       setSelectedBoardSize(state.size);
@@ -105,11 +106,12 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete, active =
       setFeedback(null);
       setEndResults(null);
       setShowEndModal(false);
-      setTimeLeft(180);
+      const timerSecs = getGameTimers().boggleSecs;
+      setTimeLeft(timerSecs);
       selectedPathRef.current = [];
       isTracingRef.current = false;
 
-      const state = await arcadeApi.startBoggle(size);
+      const state = await arcadeApi.startBoggle(size, timerSecs);
       setGameState(state);
       setSelectedBoardSize(size);
       sound.playSuccess();
@@ -710,14 +712,14 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete, active =
                 fontFamily: 'monospace',
                 fontSize: '1.2rem',
                 fontWeight: 900,
-                color: timeLeft <= 30 ? '#c92a2a' : 'var(--text-main)',
+                color: gameState.ends_at_unix_ms && timeLeft <= 30 ? '#c92a2a' : 'var(--text-main)',
                 backgroundColor: '#FAF0DE',
                 padding: '3px 8px',
                 borderRadius: '6px',
                 border: '1.5px solid var(--outline-cocoa)',
               }}
             >
-              {formatTimer(timeLeft)}
+              {gameState.ends_at_unix_ms ? formatTimer(timeLeft) : 'Untimed'}
             </div>
 
             {gameState.is_active && (

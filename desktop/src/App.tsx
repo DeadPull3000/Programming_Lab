@@ -128,7 +128,7 @@ export const App: React.FC = () => {
           </div>
 
           <div style={{ display: currentTab === 'timer' ? 'block' : 'none' }}>
-            {visitedTabs.has('timer') && <TimerPage />}
+            {visitedTabs.has('timer') && <TimerPage onSelectGame={selectTab} />}
           </div>
 
           <div style={{ display: currentTab === 'stats' ? 'block' : 'none' }}>

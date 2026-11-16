@@ -92,10 +92,10 @@ export const arcadeApi = {
 
   // Boggle
   getBoggleState: () => request<BoggleState>('/boggle/state'),
-  startBoggle: (size = 4) =>
+  startBoggle: (size = 4, duration_secs?: number) =>
     request<BoggleState>('/boggle/start', {
       method: 'POST',
-      body: JSON.stringify({ size }),
+      body: JSON.stringify({ size, ...(duration_secs !== undefined ? { duration_secs } : {}) }),
     }),
   submitBoggleWord: (word: string) =>
     request<BoggleSubmitResponse>('/boggle/submit', {

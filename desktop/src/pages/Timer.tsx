@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { sound } from '../services/sound';
 import { CozyButton } from '../components/CozyButton';
-import { Play, Pause, RotateCcw, Plus, Minus, Bell, Activity, Clock, Zap } from 'lucide-react';
+import { Play, Pause, RotateCcw, Plus, Minus, Clock, Gamepad2 } from 'lucide-react';
+import { GameTab } from '../types/arcade';
+import { getGameTimers, setGameTimer, GameTimerSettings } from '../services/gameTimers';
+import { BoggleGameIcon, BeeGameIcon, WordleGameIcon } from '../components/stickers/CustomIcons';
 
 interface ExerciseStep {
   name: string;
@@ -23,9 +26,13 @@ const DEFAULT_ROUTINE: ExerciseStep[] = [
   { name: 'Side Plank Right', workSecs: 20, restSecs: 0 },
 ];
 
-export const TimerPage: React.FC = () => {
-  // Mode selection: 'timer' | 'routine' | 'concurrent'
-  const [activeMode, setActiveMode] = useState<'timer' | 'routine' | 'concurrent'>('timer');
+interface TimerPageProps {
+  onSelectGame?: (tab: GameTab) => void;
+}
+
+export const TimerPage: React.FC<TimerPageProps> = ({ onSelectGame }) => {
+  // Mode selection: 'timer' | 'game-timers' | 'routine' | 'concurrent'
+  const [activeMode, setActiveMode] = useState<'timer' | 'game-timers' | 'routine' | 'concurrent'>('timer');
 
   // Single Timer State
   const [presetDuration, setPresetDuration] = useState<number>(180); // seconds
@@ -34,6 +41,12 @@ export const TimerPage: React.FC = () => {
   const [subsecondMode, setSubsecondMode] = useState<boolean>(true);
   const [customInput, setCustomInput] = useState<string>('');
   const lastTickRef = useRef<number>(Date.now());
+
+  // Game Timers State
+  const [gameTimers, setLocalGameTimers] = useState<GameTimerSettings>(() => getGameTimers());
+  const [boggleCustomInput, setBoggleCustomInput] = useState<string>('');
+  const [beeCustomInput, setBeeCustomInput] = useState<string>('');
+  const [wordleCustomInput, setWordleCustomInput] = useState<string>('');
 
   // Single Timer Clock Tick Loop (Drift-free monotonic)
   useEffect(() => {
@@ -214,7 +227,29 @@ export const TimerPage: React.FC = () => {
     }
   };
 
-  const timerProgress = presetDuration > 0 ? (remainingMillis / (presetDuration * 1000)) : 0;
+  const handleUpdateGameTimer = (game: 'boggle' | 'spelling-bee' | 'wordle', secs: number) => {
+    sound.playClick();
+    setGameTimer(game, secs);
+    setLocalGameTimers(getGameTimers());
+  };
+
+  const handleParseCustomGameTimer = (game: 'boggle' | 'spelling-bee' | 'wordle', raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    let secs = 0;
+    if (trimmed.includes(':')) {
+      const parts = trimmed.split(':').map((p) => parseInt(p, 10));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        secs = parts[0] * 60 + parts[1];
+      }
+    } else {
+      const val = parseInt(trimmed, 10);
+      if (!isNaN(val) && val >= 0) secs = val;
+    }
+    handleUpdateGameTimer(game, secs);
+  };
+
+  const timerProgress = presetDuration > 0 ? remainingMillis / (presetDuration * 1000) : 0;
 
   return (
     <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -258,6 +293,24 @@ export const TimerPage: React.FC = () => {
           <button
             onClick={() => {
               sound.playClick();
+              setActiveMode('game-timers');
+            }}
+            style={{
+              padding: '4px 12px',
+              borderRadius: '6px',
+              fontSize: '0.85rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              border: '1.5px solid var(--outline-cocoa)',
+              backgroundColor: activeMode === 'game-timers' ? '#8CCB79' : '#FAF0DE',
+              color: 'var(--text-main)',
+            }}
+          >
+            Word Game Timers
+          </button>
+          <button
+            onClick={() => {
+              sound.playClick();
               setActiveMode('routine');
             }}
             style={{
@@ -294,7 +347,7 @@ export const TimerPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Mode Views */}
+      {/* Mode 1: Main Countdown Clock */}
       {activeMode === 'timer' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', flex: 1 }}>
           {/* Left Panel: Large Digital Clock & Controls */}
@@ -520,7 +573,368 @@ export const TimerPage: React.FC = () => {
         </div>
       )}
 
-      {/* Routine Mode View */}
+      {/* Mode 2: Word Game Custom Timers */}
+      {activeMode === 'game-timers' && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '16px',
+            flex: 1,
+            overflowY: 'auto',
+          }}
+        >
+          {/* Boggle Card */}
+          <div
+            style={{
+              backgroundColor: '#FFFDF9',
+              border: '2px solid var(--outline-cocoa)',
+              borderRadius: '12px',
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              boxShadow: '3px 3px 0 var(--outline-cocoa)',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                <BoggleGameIcon size={28} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: 'var(--text-main)' }}>
+                  Boggle Round Timer
+                </h3>
+              </div>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.35 }}>
+                Standard Boggle uses a 3-minute sand timer. Configure your desired round time or select untimed practice.
+              </p>
+
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: '#FAF0DE',
+                  border: '1.5px solid var(--outline-cocoa)',
+                  fontFamily: 'monospace',
+                  fontWeight: 900,
+                  fontSize: '0.95rem',
+                  marginBottom: '14px',
+                }}
+              >
+                Current:{' '}
+                {gameTimers.boggleSecs > 0
+                  ? `${Math.floor(gameTimers.boggleSecs / 60)}m ${String(gameTimers.boggleSecs % 60).padStart(2, '0')}s (${gameTimers.boggleSecs}s)`
+                  : 'Untimed (No Timer)'}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' }}>
+                {[
+                  { label: '60s (1m Blitz)', secs: 60 },
+                  { label: '120s (2m Fast)', secs: 120 },
+                  { label: '180s (3m Default)', secs: 180 },
+                  { label: '300s (5m Relaxed)', secs: 300 },
+                  { label: 'Untimed (Practice)', secs: 0 },
+                ].map((p) => (
+                  <button
+                    key={p.secs}
+                    onClick={() => handleUpdateGameTimer('boggle', p.secs)}
+                    style={{
+                      padding: '6px',
+                      borderRadius: '6px',
+                      border: '1.5px solid var(--outline-cocoa)',
+                      backgroundColor: gameTimers.boggleSecs === p.secs ? '#93DFE8' : '#FAF0DE',
+                      fontWeight: 800,
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+                <input
+                  type="text"
+                  placeholder="Custom secs or MM:SS"
+                  value={boggleCustomInput}
+                  onChange={(e) => setBoggleCustomInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleParseCustomGameTimer('boggle', boggleCustomInput);
+                      setBoggleCustomInput('');
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    border: '1.5px solid var(--outline-cocoa)',
+                    backgroundColor: '#FAF0DE',
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                  }}
+                />
+                <CozyButton
+                  variant="cream"
+                  size="sm"
+                  onClick={() => {
+                    handleParseCustomGameTimer('boggle', boggleCustomInput);
+                    setBoggleCustomInput('');
+                  }}
+                >
+                  Set
+                </CozyButton>
+              </div>
+            </div>
+
+            <CozyButton
+              variant="mint"
+              size="sm"
+              onClick={() => {
+                sound.playPop();
+                if (onSelectGame) onSelectGame('boggle');
+              }}
+            >
+              <Gamepad2 size={16} /> Play Boggle
+            </CozyButton>
+          </div>
+
+          {/* Spelling Bee Card */}
+          <div
+            style={{
+              backgroundColor: '#FFFDF9',
+              border: '2px solid var(--outline-cocoa)',
+              borderRadius: '12px',
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              boxShadow: '3px 3px 0 var(--outline-cocoa)',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                <BeeGameIcon size={28} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: 'var(--text-main)' }}>
+                  Spelling Bee Blitz Timer
+                </h3>
+              </div>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.35 }}>
+                Test how many words and pangrams you can discover within a time limit before the bell sounds.
+              </p>
+
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: '#FAF0DE',
+                  border: '1.5px solid var(--outline-cocoa)',
+                  fontFamily: 'monospace',
+                  fontWeight: 900,
+                  fontSize: '0.95rem',
+                  marginBottom: '14px',
+                }}
+              >
+                Current:{' '}
+                {gameTimers.spellingBeeSecs > 0
+                  ? `${Math.floor(gameTimers.spellingBeeSecs / 60)}m ${String(gameTimers.spellingBeeSecs % 60).padStart(2, '0')}s (${gameTimers.spellingBeeSecs}s)`
+                  : 'Untimed (Classic)'}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' }}>
+                {[
+                  { label: 'Untimed (Classic)', secs: 0 },
+                  { label: '60s (1m Sprint)', secs: 60 },
+                  { label: '120s (2m Fast)', secs: 120 },
+                  { label: '180s (3m Blitz)', secs: 180 },
+                  { label: '300s (5m Marathon)', secs: 300 },
+                ].map((p) => (
+                  <button
+                    key={p.secs}
+                    onClick={() => handleUpdateGameTimer('spelling-bee', p.secs)}
+                    style={{
+                      padding: '6px',
+                      borderRadius: '6px',
+                      border: '1.5px solid var(--outline-cocoa)',
+                      backgroundColor: gameTimers.spellingBeeSecs === p.secs ? '#FFD56D' : '#FAF0DE',
+                      fontWeight: 800,
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+                <input
+                  type="text"
+                  placeholder="Custom secs or MM:SS"
+                  value={beeCustomInput}
+                  onChange={(e) => setBeeCustomInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleParseCustomGameTimer('spelling-bee', beeCustomInput);
+                      setBeeCustomInput('');
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    border: '1.5px solid var(--outline-cocoa)',
+                    backgroundColor: '#FAF0DE',
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                  }}
+                />
+                <CozyButton
+                  variant="cream"
+                  size="sm"
+                  onClick={() => {
+                    handleParseCustomGameTimer('spelling-bee', beeCustomInput);
+                    setBeeCustomInput('');
+                  }}
+                >
+                  Set
+                </CozyButton>
+              </div>
+            </div>
+
+            <CozyButton
+              variant="yellow"
+              size="sm"
+              onClick={() => {
+                sound.playPop();
+                if (onSelectGame) onSelectGame('spelling-bee');
+              }}
+            >
+              <Gamepad2 size={16} /> Play Spelling Bee
+            </CozyButton>
+          </div>
+
+          {/* Wordle Card */}
+          <div
+            style={{
+              backgroundColor: '#FFFDF9',
+              border: '2px solid var(--outline-cocoa)',
+              borderRadius: '12px',
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              boxShadow: '3px 3px 0 var(--outline-cocoa)',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                <WordleGameIcon size={28} />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: 'var(--text-main)' }}>
+                  Wordle Speedrun Timer
+                </h3>
+              </div>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.35 }}>
+                Deduce the secret 5-letter word before the speedrun clock runs out across your 6 allowed attempts.
+              </p>
+
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: '#FAF0DE',
+                  border: '1.5px solid var(--outline-cocoa)',
+                  fontFamily: 'monospace',
+                  fontWeight: 900,
+                  fontSize: '0.95rem',
+                  marginBottom: '14px',
+                }}
+              >
+                Current:{' '}
+                {gameTimers.wordleSecs > 0
+                  ? `${Math.floor(gameTimers.wordleSecs / 60)}m ${String(gameTimers.wordleSecs % 60).padStart(2, '0')}s (${gameTimers.wordleSecs}s)`
+                  : 'Untimed (Classic)'}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' }}>
+                {[
+                  { label: 'Untimed (Classic)', secs: 0 },
+                  { label: '60s (1m Speedrun)', secs: 60 },
+                  { label: '90s (1.5m Fast)', secs: 90 },
+                  { label: '120s (2m Rapid)', secs: 120 },
+                  { label: '180s (3m Standard)', secs: 180 },
+                ].map((p) => (
+                  <button
+                    key={p.secs}
+                    onClick={() => handleUpdateGameTimer('wordle', p.secs)}
+                    style={{
+                      padding: '6px',
+                      borderRadius: '6px',
+                      border: '1.5px solid var(--outline-cocoa)',
+                      backgroundColor: gameTimers.wordleSecs === p.secs ? '#F48E88' : '#FAF0DE',
+                      fontWeight: 800,
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+                <input
+                  type="text"
+                  placeholder="Custom secs or MM:SS"
+                  value={wordleCustomInput}
+                  onChange={(e) => setWordleCustomInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleParseCustomGameTimer('wordle', wordleCustomInput);
+                      setWordleCustomInput('');
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    border: '1.5px solid var(--outline-cocoa)',
+                    backgroundColor: '#FAF0DE',
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                  }}
+                />
+                <CozyButton
+                  variant="cream"
+                  size="sm"
+                  onClick={() => {
+                    handleParseCustomGameTimer('wordle', wordleCustomInput);
+                    setWordleCustomInput('');
+                  }}
+                >
+                  Set
+                </CozyButton>
+              </div>
+            </div>
+
+            <CozyButton
+              variant="coral"
+              size="sm"
+              onClick={() => {
+                sound.playPop();
+                if (onSelectGame) onSelectGame('wordle');
+              }}
+            >
+              <Gamepad2 size={16} /> Play Wordle
+            </CozyButton>
+          </div>
+        </div>
+      )}
+
+      {/* Mode 3: Routine Mode View */}
       {activeMode === 'routine' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '16px', flex: 1 }}>
           {/* Left Table */}
@@ -679,7 +1093,7 @@ export const TimerPage: React.FC = () => {
         </div>
       )}
 
-      {/* Concurrent Mode View */}
+      {/* Mode 4: Concurrent Mode View */}
       {activeMode === 'concurrent' && (
         <div
           style={{
