@@ -3,9 +3,9 @@
 //! Initializes the authoritative game engine, loads lexicons and Trie structures,
 //! loads player persistence records, and listens for GUI requests on 127.0.0.1:4567.
 
-use std::sync::{Arc, Mutex};
 use arcade_server::server::start_server;
 use arcade_server::state::ArcadeState;
+use std::sync::{Arc, Mutex};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("------------------------------------------------------------");

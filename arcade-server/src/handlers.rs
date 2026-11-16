@@ -5,6 +5,8 @@
 
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use std::time::Instant;
+use wordle::stats::storage::{quote_json_string, JsonParser, JsonValue};
 
 use boggle::board::Board;
 use boggle::game::{BoggleGame, BoggleGuessResult};
@@ -27,52 +29,36 @@ use crate::state::{ArcadeState, BoggleSession, SpellingBeeSession, WordleSession
 // Helper JSON Extractors
 // ============================================================================
 
-pub fn extract_string_param(body: &str, key: &str) -> Option<String> {
-    let key_idx = body.find(key)?;
-    let after = &body[key_idx + key.len()..];
-    let colon_idx = after.find(':')?;
-    let val_part = after[colon_idx + 1..].trim_start();
+fn extract_param(body: &str, key: &str) -> Option<JsonValue> {
+    let value = JsonParser::new(body).parse().ok()?;
+    value.as_object()?.get(key).cloned()
+}
 
-    if val_part.starts_with('"') {
-        let inside = &val_part[1..];
-        let end_quote = inside.find('"')?;
-        Some(inside[..end_quote].to_string())
-    } else {
-        let end = val_part
-            .find(|c: char| c == ',' || c == '}' || c.is_whitespace())
-            .unwrap_or(val_part.len());
-        let token = val_part[..end].trim().trim_matches('"');
-        if token.is_empty() {
-            None
-        } else {
-            Some(token.to_string())
-        }
-    }
+pub fn extract_string_param(body: &str, key: &str) -> Option<String> {
+    extract_param(body, key)?.as_str().map(str::to_owned)
 }
 
 pub fn extract_usize_param(body: &str, key: &str) -> Option<usize> {
-    let key_idx = body.find(key)?;
-    let after = &body[key_idx + key.len()..];
-    let colon_idx = after.find(':')?;
-    let val_part = after[colon_idx + 1..].trim_start();
-    let end = val_part
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(val_part.len());
-    val_part[..end].parse().ok()
+    usize::try_from(extract_param(body, key)?.as_u64()?).ok()
 }
 
 pub fn extract_bool_param(body: &str, key: &str) -> Option<bool> {
-    let key_idx = body.find(key)?;
-    let after = &body[key_idx + key.len()..];
-    let colon_idx = after.find(':')?;
-    let val_part = after[colon_idx + 1..].trim_start();
-    if val_part.starts_with("true") {
-        Some(true)
-    } else if val_part.starts_with("false") {
-        Some(false)
-    } else {
-        None
+    match extract_param(body, key)? {
+        JsonValue::Bool(value) => Some(value),
+        _ => None,
     }
+}
+
+pub fn error_json(message: &str) -> String {
+    format!(r#"{{"error":{}}}"#, quote_json_string(message))
+}
+
+fn rejected_guess_json(result: &str, message: &str) -> String {
+    format!(
+        r#"{{"result":{},"message":{},"points":0}}"#,
+        quote_json_string(result),
+        quote_json_string(message)
+    )
 }
 
 // ============================================================================
@@ -81,7 +67,8 @@ pub fn extract_bool_param(body: &str, key: &str) -> Option<bool> {
 
 pub fn handle_status(state: &ArcadeState) -> String {
     format!(
-        r#"{{"status":"ok","version":"1.0.0","answers_count":{},"legal_guess_count":{},"dictionary_loaded":true}}"#,
+        r#"{{"status":"ok","version":"{}","answers_count":{},"legal_guess_count":{},"dictionary_loaded":true}}"#,
+        crate::server_version(),
         state.dictionary.answers().len(),
         state.dictionary.legal_guesses().len()
     )
@@ -101,7 +88,7 @@ pub fn handle_games_summary(state: &ArcadeState) -> String {
     let boggle_active = state
         .boggle
         .as_ref()
-        .map(|s| s.game.is_active)
+        .map(|s| s.game.is_active && !s.has_expired())
         .unwrap_or(false);
 
     format!(
@@ -182,19 +169,15 @@ pub fn handle_wordle_state(state: &ArcadeState) -> String {
 pub fn handle_wordle_start(state: &mut ArcadeState, body: &str) -> String {
     let mut rng = thread_rng();
     let secret = if let Some(sec_str) = extract_string_param(body, "secret") {
-        if let Ok(w) = Word::parse(&sec_str) {
-            w
-        } else {
-            state
-                .dictionary
-                .choose_random_answer(&mut rng)
-                .unwrap_or_else(|| state.dictionary.answers()[0].clone())
+        match Word::parse(&sec_str) {
+            Ok(word) if state.dictionary.answers().contains(&word) => word,
+            _ => return error_json("Secret must belong to the curated answer pool"),
         }
     } else {
-        state
-            .dictionary
-            .choose_random_answer(&mut rng)
-            .unwrap_or_else(|| state.dictionary.answers()[0].clone())
+        match state.dictionary.choose_random_answer(&mut rng) {
+            Some(word) => word,
+            None => return error_json("No answers available"),
+        }
     };
 
     let game = WordleGame::new(secret);
@@ -213,7 +196,7 @@ pub fn handle_wordle_start(state: &mut ArcadeState, body: &str) -> String {
 
 pub fn handle_wordle_guess(state: &mut ArcadeState, body: &str) -> String {
     let guess_str = match extract_string_param(body, "guess") {
-        Some(g) => g.trim().to_uppercase(),
+        Some(g) => g.trim().to_owned(),
         None => return r#"{"error":"Missing 'guess' parameter"}"#.to_string(),
     };
 
@@ -230,11 +213,14 @@ pub fn handle_wordle_guess(state: &mut ArcadeState, body: &str) -> String {
         };
 
         if session.game.status() != GameStatus::InProgress {
-            return r#"{"error":"Current game has already concluded. Start a new one."}"#.to_string();
+            return r#"{"error":"Current game has already concluded. Start a new one."}"#
+                .to_string();
         }
 
-        match session.game.submit_guess(&guess_str, &trie) {
-            Ok(GuessOutcome::Accepted { feedback, status, .. }) => {
+        match session.game.submit_guess(&guess_str, trie) {
+            Ok(GuessOutcome::Accepted {
+                feedback, status, ..
+            }) => {
                 session.candidate_set.filter(&guess_word, &feedback);
                 session.keyboard.update_from_guess(&guess_word, &feedback);
                 let attempts = session.game.guesses().len();
@@ -247,21 +233,24 @@ pub fn handle_wordle_guess(state: &mut ArcadeState, body: &str) -> String {
                 return r#"{"error":"Word already guessed"}"#.to_string();
             }
             Err(e) => {
-                return format!(r#"{{"error":"{}"}}"#, e);
+                return error_json(&e.to_string());
             }
         }
     };
 
-    // Update persistent player statistics if game ended
-    if status != GameStatus::InProgress {
-        if let Some(session) = &mut state.wordle {
-            if !session.recorded_in_stats {
-                session.recorded_in_stats = true;
-                let won = status == GameStatus::Won;
-                state.stats.wordle.record_outcome(won, attempts_used);
-                state.save_stats();
-            }
+    if status != GameStatus::InProgress
+        && state.wordle.as_ref().is_some_and(|s| !s.recorded_in_stats)
+    {
+        if let Err(e) = state.update_stats(|stats| {
+            stats
+                .wordle
+                .record_outcome(status == GameStatus::Won, attempts_used)
+        }) {
+            return error_json(&format!(
+                "Game completed, but statistics could not be saved: {e}"
+            ));
         }
+        state.wordle.as_mut().unwrap().recorded_in_stats = true;
     }
 
     handle_wordle_state(state)
@@ -276,7 +265,8 @@ pub fn handle_wordle_hint(state: &ArcadeState, body: &str) -> String {
     let count = session.candidate_set.len();
 
     if count == 0 {
-        return r#"{"remaining_candidates":0,"is_single_candidate":false,"suggestions":[]}"#.to_string();
+        return r#"{"remaining_candidates":0,"is_single_candidate":false,"suggestions":[]}"#
+            .to_string();
     }
 
     if count == 1 {
@@ -287,7 +277,7 @@ pub fn handle_wordle_hint(state: &ArcadeState, body: &str) -> String {
         );
     }
 
-    let top_n = extract_usize_param(body, "top_n").unwrap_or(5);
+    let top_n = extract_usize_param(body, "top_n").unwrap_or(5).clamp(1, 20);
     let strategy = match extract_string_param(body, "strategy").as_deref() {
         Some("minimax") => SolverStrategy::Minimax,
         _ => SolverStrategy::InformationGain,
@@ -303,14 +293,13 @@ pub fn handle_wordle_hint(state: &ArcadeState, body: &str) -> String {
         .map(|g| g.word.clone())
         .collect();
 
-    let ranked = match solver.suggest(
-        &session.candidate_set,
-        state.dictionary.legal_guesses(),
-        &previous_guesses,
-    ) {
-        Ok(suggs) => suggs,
-        Err(_) => Vec::new(),
-    };
+    let ranked = solver
+        .suggest(
+            &session.candidate_set,
+            state.dictionary.legal_guesses(),
+            &previous_guesses,
+        )
+        .unwrap_or_default();
 
     let mut sugg_jsons = Vec::new();
     for s in ranked {
@@ -396,6 +385,24 @@ pub fn handle_spelling_bee_state(state: &ArcadeState) -> String {
 }
 
 pub fn handle_spelling_bee_start(state: &mut ArcadeState) -> String {
+    if let Some(session) = &state.spelling_bee {
+        if !session.recorded_in_stats && session.game.count_guessed() > 0 {
+            let (score, words, pangrams, queen) = (
+                session.game.score,
+                session.game.count_guessed() as u32,
+                session.pangrams_found,
+                session.game.is_queen_bee(),
+            );
+            if let Err(e) = state.update_stats(|stats| {
+                stats
+                    .spelling_bee
+                    .record_game(score, words, pangrams, queen)
+            }) {
+                return error_json(&format!("Could not save previous puzzle: {e}"));
+            }
+            state.spelling_bee.as_mut().unwrap().recorded_in_stats = true;
+        }
+    }
     let mut rng = thread_rng();
     let trie = state.dictionary.trie();
 
@@ -458,7 +465,7 @@ pub fn handle_spelling_bee_start(state: &mut ArcadeState) -> String {
 
 pub fn handle_spelling_bee_submit(state: &mut ArcadeState, body: &str) -> String {
     let word = match extract_string_param(body, "word") {
-        Some(w) => w.trim().to_uppercase(),
+        Some(w) => w.trim().to_owned(),
         None => return r#"{"error":"Missing 'word' parameter"}"#.to_string(),
     };
 
@@ -485,20 +492,32 @@ pub fn handle_spelling_bee_submit(state: &mut ArcadeState, body: &str) -> String
         )
     };
 
-    if is_queen {
-        if let Some(session) = &mut state.spelling_bee {
-            if !session.recorded_in_stats {
-                session.recorded_in_stats = true;
-                state.stats.spelling_bee.record_game(score, words_count as u32, pangrams, true);
-                state.save_stats();
-            }
+    if is_queen
+        && state
+            .spelling_bee
+            .as_ref()
+            .is_some_and(|s| !s.recorded_in_stats)
+    {
+        if let Err(e) = state.update_stats(|stats| {
+            stats
+                .spelling_bee
+                .record_game(score, words_count as u32, pangrams, true)
+        }) {
+            return error_json(&format!(
+                "Puzzle completed, but statistics could not be saved: {e}"
+            ));
         }
+        state.spelling_bee.as_mut().unwrap().recorded_in_stats = true;
     }
 
     let rank = bee_rank_name(score, max_score);
 
     match res {
-        GuessResult::Accepted { points, pangram, word: _ } => {
+        GuessResult::Accepted {
+            points,
+            pangram,
+            word: _,
+        } => {
             let msg = if pangram {
                 format!("PANGRAM! +{} points!", points)
             } else {
@@ -514,12 +533,30 @@ pub fn handle_spelling_bee_submit(state: &mut ArcadeState, body: &str) -> String
                 handle_spelling_bee_state(state)
             )
         }
-        GuessResult::TooShort => r#"{"result":"TooShort","message":"Word is too short (must be 4+ letters)","points":0}"#.to_string(),
-        GuessResult::InvalidCharacters(c) => format!(r#"{{"result":"InvalidCharacters","message":"Contains invalid character '{}'","points":0}}"#, c),
-        GuessResult::MissingMainLetter(c) => format!(r#"{{"result":"MissingMainLetter","message":"Missing mandatory center letter [{}]","points":0}}"#, c),
-        GuessResult::InvalidLetters(c) => format!(r#"{{"result":"InvalidLetters","message":"Contains letter '{}' not in puzzle","points":0}}"#, c),
-        GuessResult::NotInSolutions => r#"{"result":"NotInSolutions","message":"Word is not in the dictionary","points":0}"#.to_string(),
-        GuessResult::AlreadyGuessed => r#"{"result":"AlreadyGuessed","message":"Already found that word!","points":0}"#.to_string(),
+        GuessResult::TooShort => {
+            r#"{"result":"TooShort","message":"Word is too short (must be 4+ letters)","points":0}"#
+                .to_string()
+        }
+        GuessResult::InvalidCharacters(c) => rejected_guess_json(
+            "InvalidCharacters",
+            &format!("Contains invalid character '{c}'"),
+        ),
+        GuessResult::MissingMainLetter(c) => format!(
+            r#"{{"result":"MissingMainLetter","message":"Missing mandatory center letter [{}]","points":0}}"#,
+            c
+        ),
+        GuessResult::InvalidLetters(c) => format!(
+            r#"{{"result":"InvalidLetters","message":"Contains letter '{}' not in puzzle","points":0}}"#,
+            c
+        ),
+        GuessResult::NotInSolutions => {
+            r#"{"result":"NotInSolutions","message":"Word is not in the dictionary","points":0}"#
+                .to_string()
+        }
+        GuessResult::AlreadyGuessed => {
+            r#"{"result":"AlreadyGuessed","message":"Already found that word!","points":0}"#
+                .to_string()
+        }
     }
 }
 
@@ -638,8 +675,13 @@ pub fn handle_boggle_state(state: &ArcadeState) -> String {
                 .collect::<Vec<_>>()
                 .join(",");
 
+            let ends_at_str = match session.ends_at_unix_ms {
+                Some(ms) => ms.to_string(),
+                None => "null".to_string(),
+            };
+
             format!(
-                r#"{{"size":{},"cells":[{}],"grid":{},"score":{},"accepted_words":[{}],"total_possible_words":{},"max_possible_score":{},"is_active":{}}}"#,
+                r#"{{"size":{},"cells":[{}],"grid":{},"score":{},"accepted_words":[{}],"total_possible_words":{},"max_possible_score":{},"is_active":{},"ends_at_unix_ms":{}}}"#,
                 size,
                 cells_json,
                 grid_json,
@@ -647,19 +689,31 @@ pub fn handle_boggle_state(state: &ArcadeState) -> String {
                 accepted_json,
                 session.all_solutions.len(),
                 session.max_possible_score,
-                session.game.is_active
+                session.game.is_active && !session.has_expired(),
+                ends_at_str
             )
         }
-        None => r#"{"size":4,"cells":[],"grid":[],"score":0,"accepted_words":[],"total_possible_words":0,"max_possible_score":0,"is_active":false}"#.to_string(),
+        None => r#"{"size":4,"cells":[],"grid":[],"score":0,"accepted_words":[],"total_possible_words":0,"max_possible_score":0,"is_active":false,"ends_at_unix_ms":null}"#.to_string(),
     }
 }
 
 pub fn handle_boggle_start(state: &mut ArcadeState, body: &str) -> String {
     let size = extract_usize_param(body, "size").unwrap_or(4);
     if size != 4 && size != 5 && size != 6 {
-        return r#"{"error":"Invalid board dimension. Supported sizes are 4, 5, or 6."}"#.to_string();
+        return r#"{"error":"Invalid board dimension. Supported sizes are 4, 5, or 6."}"#
+            .to_string();
     }
 
+    let duration_secs = extract_usize_param(body, "duration_secs")
+        .map(|d| d as u64)
+        .unwrap_or(180);
+
+    if state.boggle.as_ref().is_some_and(|s| !s.recorded_in_stats) {
+        let result = handle_boggle_end(state);
+        if result.contains("\"error\"") {
+            return result;
+        }
+    }
     let mut rng = thread_rng();
     let trie = state.dictionary.trie();
 
@@ -679,6 +733,9 @@ pub fn handle_boggle_start(state: &mut ArcadeState, body: &str) -> String {
         all_solutions,
         max_possible_score,
         recorded_in_stats: false,
+        started_at: Instant::now(),
+        ends_at_unix_ms: BoggleSession::deadline_for_duration(duration_secs),
+        duration_secs,
     });
 
     handle_boggle_state(state)
@@ -686,10 +743,17 @@ pub fn handle_boggle_start(state: &mut ArcadeState, body: &str) -> String {
 
 pub fn handle_boggle_submit(state: &mut ArcadeState, body: &str) -> String {
     let word = match extract_string_param(body, "word") {
-        Some(w) => w.trim().to_uppercase(),
+        Some(w) => w.trim().to_owned(),
         None => return r#"{"error":"Missing 'word' parameter"}"#.to_string(),
     };
 
+    if state.boggle.as_ref().is_some_and(|s| s.has_expired()) {
+        let result = handle_boggle_end(state);
+        if result.contains("\"error\"") {
+            return result;
+        }
+        return error_json("Boggle round has ended. Start a new round.");
+    }
     let trie = state.dictionary.trie();
 
     let (res, score) = {
@@ -704,7 +768,7 @@ pub fn handle_boggle_submit(state: &mut ArcadeState, body: &str) -> String {
 
         let r = BoggleGame::evaluate_single_word(
             &session.game.board,
-            &trie,
+            trie,
             &mut session.game.accepted_words,
             &word,
         );
@@ -724,7 +788,7 @@ pub fn handle_boggle_submit(state: &mut ArcadeState, body: &str) -> String {
             )
         }
         BoggleGuessResult::TooShort => r#"{"result":"TooShort","message":"Word must be at least 3 letters","points":0}"#.to_string(),
-        BoggleGuessResult::InvalidCharacters(c) => format!(r#"{{"result":"InvalidCharacters","message":"Invalid letter '{}'","points":0}}"#, c),
+        BoggleGuessResult::InvalidCharacters(c) => rejected_guess_json("InvalidCharacters", &format!("Invalid letter '{c}'")),
         BoggleGuessResult::NotInDictionary => r#"{"result":"NotInDictionary","message":"Word is not in the dictionary","points":0}"#.to_string(),
         BoggleGuessResult::NotOnBoard => r#"{"result":"NotOnBoard","message":"Cannot trace word across adjacent cells","points":0}"#.to_string(),
         BoggleGuessResult::AlreadyGuessed => r#"{"result":"AlreadyGuessed","message":"Already found that word!","points":0}"#.to_string(),
@@ -755,15 +819,23 @@ pub fn handle_boggle_end(state: &mut ArcadeState) -> String {
         let sample = missed.iter().take(30).cloned().collect::<Vec<_>>();
 
         let should_record = !session.recorded_in_stats;
-        if should_record {
-            session.recorded_in_stats = true;
-        }
-        (score, total, max_score, acc_cnt, sample, should_record.then_some(words))
+        (
+            score,
+            total,
+            max_score,
+            acc_cnt,
+            sample,
+            should_record.then_some(words),
+        )
     };
 
     if let Some(words) = maybe_words {
-        state.stats.boggle.record_game(score, &words);
-        state.save_stats();
+        if let Err(e) = state.update_stats(|stats| stats.boggle.record_game(score, &words)) {
+            return error_json(&format!(
+                "Round ended, but statistics could not be saved: {e}"
+            ));
+        }
+        state.boggle.as_mut().unwrap().recorded_in_stats = true;
     }
 
     let missed_json = sample
@@ -789,28 +861,30 @@ pub fn handle_get_stats(state: &ArcadeState) -> String {
 }
 
 pub fn handle_reset_stats(state: &mut ArcadeState) -> String {
-    state.stats = crate::state::UnifiedStats::default();
-    state.save_stats();
+    if let Err(e) = state.update_stats(|stats| *stats = crate::state::UnifiedStats::default()) {
+        return error_json(&format!("Could not reset statistics: {e}"));
+    }
     r#"{"success":true,"message":"Player statistics reset successfully"}"#.to_string()
 }
 
 pub fn handle_get_settings(state: &ArcadeState) -> String {
-    format!(
-        r#"{{"sound_enabled":{},"music_enabled":{},"reduced_motion":{}}}"#,
-        state.settings.sound_enabled, state.settings.music_enabled, state.settings.reduced_motion
-    )
+    state.settings.to_json()
 }
 
 pub fn handle_update_settings(state: &mut ArcadeState, body: &str) -> String {
-    if let Some(snd) = extract_bool_param(body, "sound_enabled") {
-        state.settings.sound_enabled = snd;
+    let mut settings = state.settings.clone();
+    if let Some(value) = extract_bool_param(body, "sound_enabled") {
+        settings.sound_enabled = value;
     }
-    if let Some(mus) = extract_bool_param(body, "music_enabled") {
-        state.settings.music_enabled = mus;
+    if let Some(value) = extract_bool_param(body, "music_enabled") {
+        settings.music_enabled = value;
     }
-    if let Some(mot) = extract_bool_param(body, "reduced_motion") {
-        state.settings.reduced_motion = mot;
+    if let Some(value) = extract_bool_param(body, "reduced_motion") {
+        settings.reduced_motion = value;
     }
-
+    if let Err(e) = state.save_settings(&settings) {
+        return error_json(&format!("Could not save settings: {e}"));
+    }
+    state.settings = settings;
     handle_get_settings(state)
 }
