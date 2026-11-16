@@ -12,6 +12,7 @@ import {
   BeeGameIcon,
   BoggleGameIcon,
   CookieEasterEgg,
+  CountdownTimerIcon,
   DiaryBookIcon,
   PawPrintIcon,
   SettingsCogIcon,
@@ -491,8 +492,8 @@ export const Home: React.FC<HomeProps> = ({ onSelectGame, summary, stats }) => {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: '16px',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: '12px',
               margin: '16px 0',
             }}
           >
@@ -500,7 +501,7 @@ export const Home: React.FC<HomeProps> = ({ onSelectGame, summary, stats }) => {
             <div
               className="cozy-card"
               style={{
-                padding: '16px',
+                padding: '14px',
                 backgroundColor: '#FAF5EE',
                 display: 'flex',
                 flexDirection: 'column',
@@ -509,13 +510,13 @@ export const Home: React.FC<HomeProps> = ({ onSelectGame, summary, stats }) => {
             >
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <WordleGameIcon size={34} />
+                  <WordleGameIcon size={30} />
                   {summary?.wordle_active && (
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#2b8a3e' }}>● ACTIVE</span>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#2b8a3e' }}>● ACTIVE</span>
                   )}
                 </div>
-                <h3 style={{ fontSize: '1.25rem', marginTop: '6px' }}>Wordle</h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                <h3 style={{ fontSize: '1.15rem', marginTop: '6px' }}>Wordle</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   5-letter word puzzle with two-pass color feedback & Shannon entropy solver.
                 </p>
               </div>
@@ -528,7 +529,7 @@ export const Home: React.FC<HomeProps> = ({ onSelectGame, summary, stats }) => {
             <div
               className="cozy-card"
               style={{
-                padding: '16px',
+                padding: '14px',
                 backgroundColor: '#FAF5EE',
                 display: 'flex',
                 flexDirection: 'column',
@@ -537,13 +538,13 @@ export const Home: React.FC<HomeProps> = ({ onSelectGame, summary, stats }) => {
             >
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <BeeGameIcon size={34} />
+                  <BeeGameIcon size={30} />
                   {summary?.spelling_bee_active && (
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#2b8a3e' }}>● ACTIVE</span>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#2b8a3e' }}>● ACTIVE</span>
                   )}
                 </div>
-                <h3 style={{ fontSize: '1.25rem', marginTop: '6px' }}>Spelling Bee</h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                <h3 style={{ fontSize: '1.15rem', marginTop: '6px' }}>Spelling Bee</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   7-letter honeycomb puzzle with mandatory center letter & pangrams.
                 </p>
               </div>
@@ -556,7 +557,7 @@ export const Home: React.FC<HomeProps> = ({ onSelectGame, summary, stats }) => {
             <div
               className="cozy-card"
               style={{
-                padding: '16px',
+                padding: '14px',
                 backgroundColor: '#FAF5EE',
                 display: 'flex',
                 flexDirection: 'column',
@@ -565,18 +566,44 @@ export const Home: React.FC<HomeProps> = ({ onSelectGame, summary, stats }) => {
             >
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <BoggleGameIcon size={34} />
+                  <BoggleGameIcon size={30} />
                   {summary?.boggle_active && (
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#2b8a3e' }}>● ACTIVE</span>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#2b8a3e' }}>● ACTIVE</span>
                   )}
                 </div>
-                <h3 style={{ fontSize: '1.25rem', marginTop: '6px' }}>Boggle</h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  4×4, 5×5, 6×6 tabletop grid with mouse path tracing & countdown timer.
+                <h3 style={{ fontSize: '1.15rem', marginTop: '6px' }}>Boggle</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Tabletop word grid with interactive path tracing & timed round countdown.
                 </p>
               </div>
               <CozyButton variant="mint" size="sm" onClick={() => onSelectGame('boggle')}>
                 PLAY BOGGLE
+              </CozyButton>
+            </div>
+
+            {/* Countdown Timer Card */}
+            <div
+              className="cozy-card"
+              style={{
+                padding: '14px',
+                backgroundColor: '#FAF5EE',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <CountdownTimerIcon size={30} />
+                  <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#d97706' }}>● ASSIGN 5</span>
+                </div>
+                <h3 style={{ fontSize: '1.15rem', marginTop: '6px' }}>Timer & Routines</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Drift-free clock, 100ms precision, 11-step exercise circuit, and concurrent timers.
+                </p>
+              </div>
+              <CozyButton variant="blue" size="sm" onClick={() => onSelectGame('timer')}>
+                OPEN TIMER
               </CozyButton>
             </div>
           </div>

@@ -13,8 +13,8 @@ import {
   WordleState,
 } from '../types/arcade';
 
-// Use direct port or proxy
-const API_BASE = 'http://127.0.0.1:4567/api';
+// Vite's dev and preview servers forward these same-origin requests to Rust.
+const API_BASE = '/api';
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
@@ -29,12 +29,12 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
     if (!res.ok) {
       const errText = await res.text();
+      let message = `HTTP error ${res.status}: ${errText}`;
       try {
         const parsed = JSON.parse(errText);
-        throw new Error(parsed.error || `HTTP error ${res.status}`);
-      } catch {
-        throw new Error(`HTTP error ${res.status}: ${errText}`);
-      }
+        if (typeof parsed.error === 'string') message = parsed.error;
+      } catch { /* Use the raw response when it is not JSON. */ }
+      throw new Error(message);
     }
 
     const data = await res.json();

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   RotateCcw,
@@ -29,9 +29,12 @@ import {
 
 interface WordlePageProps {
   onGameComplete?: () => void;
+  active?: boolean;
 }
 
-export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
+export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete, active = true }) => {
+  const initialized = useRef(false);
+  const pending = useRef(false);
   const [gameState, setGameState] = useState<WordleState | null>(null);
   const [currentInput, setCurrentInput] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -66,11 +69,15 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
   }, []);
 
   useEffect(() => {
-    fetchState();
+    if (initialized.current) return;
+    initialized.current = true;
+    void fetchState();
   }, [fetchState]);
 
   // Restart game
   const handleNewGame = async () => {
+    if (pending.current) return;
+    pending.current = true;
     try {
       setLoading(true);
       setCurrentInput('');
@@ -83,6 +90,7 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not start new Wordle game');
     } finally {
+      pending.current = false;
       setLoading(false);
     }
   };
@@ -95,6 +103,8 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
       return;
     }
 
+    if (pending.current) return;
+    pending.current = true;
     try {
       setErrorMessage(null);
       const updated = await arcadeApi.submitWordleGuess(currentInput);
@@ -115,6 +125,8 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
       }
     } catch (err: any) {
       triggerError(err.message || 'Invalid guess');
+    } finally {
+      pending.current = false;
     }
   };
 
@@ -150,12 +162,16 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
   // Physical keyboard listener
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (!active || loading || pending.current || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (e.target instanceof HTMLElement && e.target.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+      if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete' || /^[a-zA-Z]$/.test(e.key)) e.preventDefault();
       handleKeyPress(e.key);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleKeyPress]);
+  }, [handleKeyPress, active, loading]);
 
   // Request hint from Rust solver
   const handleRequestHint = async () => {
@@ -222,6 +238,8 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
     return (
       <div style={{ textAlign: 'center', padding: '60px' }}>
         <h2 style={{ fontSize: '1.4rem' }}>Opening Wordle diary spread...</h2>
+        <p role="alert">{errorMessage}</p>
+        <CozyButton onClick={fetchState} disabled={loading}>Retry connection</CozyButton>
       </div>
     );
   }
@@ -629,7 +647,7 @@ export const WordlePage: React.FC<WordlePageProps> = ({ onGameComplete }) => {
 
       {/* End-Of-Game Modal */}
       <CozyModal
-        isOpen={showEndModal}
+        isOpen={active && showEndModal}
         onClose={() => setShowEndModal(false)}
         title={gameState.game_status === 'Won' ? 'Splendid Victory!' : 'Game Over!'}
         isVictory={gameState.game_status === 'Won'}

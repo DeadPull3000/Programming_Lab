@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   RotateCcw,
   Shuffle,
@@ -27,6 +27,7 @@ import {
 
 interface SpellingBeePageProps {
   onGameComplete?: () => void;
+  active?: boolean;
 }
 
 const HexagonTile: React.FC<{
@@ -72,7 +73,9 @@ const HexagonTile: React.FC<{
   </button>
 );
 
-export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete }) => {
+export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete, active = true }) => {
+  const initialized = useRef(false);
+  const pending = useRef(false);
   const [gameState, setGameState] = useState<SpellingBeeState | null>(null);
   const [currentInput, setCurrentInput] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; isError: boolean } | null>(
@@ -110,11 +113,15 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
   }, []);
 
   useEffect(() => {
-    fetchState();
+    if (initialized.current) return;
+    initialized.current = true;
+    void fetchState();
   }, [fetchState]);
 
   // Restart puzzle
   const handleNewPuzzle = async () => {
+    if (pending.current) return;
+    pending.current = true;
     try {
       setLoading(true);
       setCurrentInput('');
@@ -126,6 +133,7 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
     } catch (err: any) {
       setFeedbackMessage({ text: err.message || 'Could not start new puzzle', isError: true });
     } finally {
+      pending.current = false;
       setLoading(false);
     }
   };
@@ -136,7 +144,7 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
       sound.playClick();
       const res = await arcadeApi.shuffleSpellingBee();
       if (gameState) {
-        setGameState({ ...gameState, outer_letters: res.outer_letters });
+        setGameState((previous) => previous ? { ...previous, outer_letters: res.outer_letters } : previous);
       }
     } catch (e) {
       // fallback
@@ -147,6 +155,8 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
   const handleSubmitWord = async () => {
     if (!gameState || !currentInput.trim()) return;
 
+    if (pending.current) return;
+    pending.current = true;
     try {
       const res = await arcadeApi.submitSpellingBeeWord(currentInput);
       if (res.result === 'Accepted') {
@@ -178,6 +188,8 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
       sound.playInvalid();
       setFeedbackMessage({ text: err.message || 'Submission failed', isError: true });
       setCurrentInput('');
+    } finally {
+      pending.current = false;
     }
   };
 
@@ -194,7 +206,11 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
   // Keyboard navigation
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (!active || loading || pending.current || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (e.target instanceof HTMLElement && e.target.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+      if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete' || /^[a-zA-Z]$/.test(e.key)) e.preventDefault();
       if (e.key === 'Enter') {
         handleSubmitWord();
       } else if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -205,7 +221,7 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentInput, gameState]);
+  }, [currentInput, gameState, active, loading]);
 
   // Load Hints
   const handleToggleHints = async () => {
@@ -227,6 +243,8 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
     return (
       <div style={{ textAlign: 'center', padding: '60px' }}>
         <h2 style={{ fontSize: '1.4rem' }}>Opening Spelling Bee diary spread...</h2>
+        <p role="alert">{feedbackMessage?.text}</p>
+        <CozyButton onClick={fetchState} disabled={loading}>Retry connection</CozyButton>
       </div>
     );
   }
@@ -606,7 +624,7 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
 
       {/* Queen Bee Celebration Modal */}
       <CozyModal
-        isOpen={showQueenModal}
+        isOpen={active && showQueenModal}
         onClose={() => setShowQueenModal(false)}
         title="QUEEN BEE ACHIEVED!"
         isVictory={true}

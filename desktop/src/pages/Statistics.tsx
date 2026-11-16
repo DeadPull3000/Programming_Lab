@@ -27,26 +27,28 @@ import {
   WashiTape,
 } from '../components/stickers/DiaryStickers';
 
-export const StatisticsPage: React.FC = () => {
+export const StatisticsPage: React.FC<{ active?: boolean; onStatsChange?: () => void }> = ({ active = true, onStatsChange }) => {
   const [stats, setStats] = useState<UnifiedStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showResetModal, setShowResetModal] = useState(false);
 
   const fetchStats = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await arcadeApi.getStats();
       setStats(data);
     } catch (e) {
-      // error fetching stats
+      setError(e instanceof Error ? e.message : 'Could not load statistics');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStats();
-  }, []);
+    if (active) void fetchStats();
+  }, [active]);
 
   const handleConfirmReset = async () => {
     try {
@@ -54,8 +56,9 @@ export const StatisticsPage: React.FC = () => {
       await arcadeApi.resetStats();
       setShowResetModal(false);
       await fetchStats();
+      onStatsChange?.();
     } catch (e) {
-      // error resetting
+      setError(e instanceof Error ? e.message : 'Could not reset statistics');
     }
   };
 
@@ -63,6 +66,8 @@ export const StatisticsPage: React.FC = () => {
     return (
       <div style={{ textAlign: 'center', padding: '60px' }}>
         <h2 style={{ fontSize: '1.4rem' }}>Opening Arcade Scrapbook...</h2>
+        <p role="alert">{error}</p>
+        <CozyButton onClick={fetchStats} disabled={loading}>Retry connection</CozyButton>
       </div>
     );
   }

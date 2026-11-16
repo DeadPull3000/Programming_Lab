@@ -325,3 +325,11 @@ export const GoldStarIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
   </svg>
 );
 
+
+export const CountdownTimerIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="16" cy="17" r="11" fill="#FFEAA7" stroke="#60433B" strokeWidth="2" />
+    <path d="M16 6V3M13 3H19M23 8L25 6" stroke="#60433B" strokeWidth="2" strokeLinecap="round" />
+    <path d="M16 17L16 12M16 17L20 19" stroke="#60433B" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);
