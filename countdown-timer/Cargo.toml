@@ -1,0 +1,18 @@
+[package]
+name = "countdown-timer"
+version = "0.1.0"
+edition = "2021"
+authors = ["DeadPull3000 <vaishnavijha3000@gmail.com>"]
+description = "A versatile, drift-free concurrent countdown timer with large ASCII display, sequential exercise routines, and multi-timer management."
+
+[lib]
+name = "countdown_timer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "countdown-timer"
+path = "src/main.rs"
+
+[dependencies]
+
+[dev-dependencies]
