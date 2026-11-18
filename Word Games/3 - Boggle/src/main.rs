@@ -13,6 +13,8 @@ use trie::Trie;
 use boggle::board::Board;
 use boggle::game::{BoggleGame, BoggleGuessResult};
 use boggle::validator::solve_boggle_board;
+use countdown_timer::display::{emit_sound, render_dashboard, render_expired_banner};
+use countdown_timer::timer::{parse_duration, CountdownTimer, TimerConfig};
 
 /// Loads dictionary words from a file into a shared Trie.
 pub fn load_dictionary<P: AsRef<Path>>(path: P) -> io::Result<(Trie, usize)> {
@@ -34,10 +36,12 @@ pub fn load_dictionary<P: AsRef<Path>>(path: P) -> io::Result<(Trie, usize)> {
     Ok((trie, word_count))
 }
 
-fn read_line_trimmed<R: BufRead>(reader: &mut R) -> io::Result<String> {
+fn read_line_trimmed<R: BufRead>(reader: &mut R) -> io::Result<Option<String>> {
     let mut buf = String::new();
-    reader.read_line(&mut buf)?;
-    Ok(buf.trim().to_string())
+    if reader.read_line(&mut buf)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(buf.trim().to_string()))
 }
 
 fn main() -> io::Result<()> {
@@ -101,22 +105,40 @@ fn main() -> io::Result<()> {
         )?;
         writer.flush()?;
 
-        let dim_str = read_line_trimmed(&mut reader)?;
+        let Some(dim_str) = read_line_trimmed(&mut reader)? else {
+            break;
+        };
         let size: usize = match dim_str.as_str() {
             "5" => 5,
             "6" => 6,
             _ => 4,
         };
 
-        write!(writer, "Enable 3-minute timer? (y/N) > ")?;
+        write!(
+            writer,
+            "Enable countdown timer? [y/N or custom e.g. '3m', '90s'] > "
+        )?;
         writer.flush()?;
-        let timer_choice = read_line_trimmed(&mut reader)?;
-        let timer_duration =
-            if timer_choice.eq_ignore_ascii_case("y") || timer_choice.eq_ignore_ascii_case("yes") {
-                Some(Duration::from_secs(180))
+        let Some(timer_choice) = read_line_trimmed(&mut reader)? else {
+            break;
+        };
+
+        let mut round_timer = if timer_choice.eq_ignore_ascii_case("y")
+            || timer_choice.eq_ignore_ascii_case("yes")
+        {
+            TimerConfig::new(Duration::from_secs(180)).ok().map(CountdownTimer::new)
+        } else if !timer_choice.is_empty()
+            && !timer_choice.eq_ignore_ascii_case("n")
+            && !timer_choice.eq_ignore_ascii_case("no")
+        {
+            if let Ok(dur) = parse_duration(&timer_choice) {
+                TimerConfig::new(dur).ok().map(CountdownTimer::new)
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
         let board = Board::random(size, &mut rng).expect("board generation must succeed");
         let mut game = BoggleGame::new(board);
@@ -136,37 +158,58 @@ fn main() -> io::Result<()> {
         )?;
         writeln!(
             writer,
+            "  - Type 'TIME' to show large countdown clock and progress."
+        )?;
+        writeln!(
+            writer,
+            "  - Type 'PAUSE' to freeze the countdown timer."
+        )?;
+        writeln!(
+            writer,
             "  - Type 'DONE' to finish and evaluate all guesses."
         )?;
         writeln!(
             writer,
             "  - Type 'QUIT' to evaluate current guesses and exit game."
         )?;
-        if let Some(dur) = timer_duration {
-            writeln!(writer, "  - Round Timer: {:.0?} active!", dur)?;
+        if let Some(timer) = round_timer.as_ref() {
+            writeln!(
+                writer,
+                "  - High-Precision Monotonic Timer: {} active!",
+                countdown_timer::display::format_duration_digital(timer.initial_duration(), false)
+            )?;
         }
         writeln!(
             writer,
             "--------------------------------------------------------"
         )?;
 
-        let round_start = Instant::now();
+        if let Some(timer) = round_timer.as_mut() {
+            let _ = timer.start();
+        }
 
         // Inner Guess Collection Loop
         loop {
             // Check timer
-            if let Some(dur) = timer_duration {
-                let elapsed = round_start.elapsed();
-                if elapsed >= dur {
-                    writeln!(writer, "\n*** TIME IS UP! ({:.0?}) ***", dur)?;
+            if let Some(timer) = round_timer.as_mut() {
+                if timer.remaining().is_zero() {
+                    emit_sound();
+                    writeln!(writer, "{}", render_expired_banner(timer.initial_duration()))?;
                     break;
                 }
             }
 
+            let time_indicator = if let Some(timer) = round_timer.as_mut() {
+                format!(" | Time: {}s", timer.remaining().as_secs())
+            } else {
+                String::new()
+            };
+
             write!(
                 writer,
-                "[Guesses pending: {}] Enter word(s) > ",
-                game.collected_guesses.len()
+                "[Pending: {}{}] Enter word(s) > ",
+                game.collected_guesses.len(),
+                time_indicator
             )?;
             writer.flush()?;
 
@@ -192,8 +235,36 @@ fn main() -> io::Result<()> {
             } else if trimmed.eq_ignore_ascii_case("board") {
                 write!(writer, "{}", game.board.display_grid())?;
                 continue;
+            } else if trimmed.eq_ignore_ascii_case("time") || trimmed.eq_ignore_ascii_case("timer") {
+                if let Some(timer) = round_timer.as_mut() {
+                    write!(writer, "{}", render_dashboard(&timer.snapshot(), false))?;
+                } else {
+                    writeln!(writer, "No timer active for this round.")?;
+                }
+                continue;
+            } else if trimmed.eq_ignore_ascii_case("pause") {
+                if let Some(timer) = round_timer.as_mut() {
+                    let _ = timer.pause();
+                    writeln!(writer, "\n[Round Paused] Time frozen. Type 'RESUME' to continue > ")?;
+                    writer.flush()?;
+                    while let Some(res_line) = read_line_trimmed(&mut reader)? {
+                        if res_line.eq_ignore_ascii_case("resume") || res_line.is_empty() {
+                            let _ = timer.resume();
+                            writeln!(writer, "[Round Resumed!]")?;
+                            break;
+                        }
+                    }
+                }
+                continue;
             }
 
+            if let Some(timer) = round_timer.as_mut() {
+                if timer.remaining().is_zero() {
+                    emit_sound();
+                    writeln!(writer, "{}", render_expired_banner(timer.initial_duration()))?;
+                    break;
+                }
+            }
             game.add_input_line(trimmed);
         }
 
@@ -237,7 +308,9 @@ fn main() -> io::Result<()> {
         // Prompt for another round
         write!(writer, "\nPlay another round? (Y/n) > ")?;
         writer.flush()?;
-        let again = read_line_trimmed(&mut reader)?;
+        let Some(again) = read_line_trimmed(&mut reader)? else {
+            break;
+        };
         if again.eq_ignore_ascii_case("n") || again.eq_ignore_ascii_case("no") {
             writeln!(writer, "Thanks for playing Boggle!")?;
             break;
@@ -329,4 +402,17 @@ fn print_round_summary<W: Write>(
         "========================================================"
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    #[test]
+    fn empty_input_and_eof_are_distinct() {
+        let mut input = io::Cursor::new("\n  5  \n");
+        assert_eq!(read_line_trimmed(&mut input).unwrap(), Some(String::new()));
+        assert_eq!(read_line_trimmed(&mut input).unwrap(), Some("5".into()));
+        assert_eq!(read_line_trimmed(&mut input).unwrap(), None);
+    }
 }

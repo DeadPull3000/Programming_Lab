@@ -6,5 +6,6 @@ members = [
     "3 - Boggle",
     "4 - Wordle",
     "arcade-server",
+    "countdown-timer",
 ]
 resolver = "2"

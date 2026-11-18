@@ -13,8 +13,8 @@ import {
   WordleState,
 } from '../types/arcade';
 
-// Use direct port or proxy
-const API_BASE = 'http://127.0.0.1:4567/api';
+// Vite's dev and preview servers forward these same-origin requests to Rust.
+const API_BASE = '/api';
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
@@ -29,12 +29,12 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
     if (!res.ok) {
       const errText = await res.text();
+      let message = `HTTP error ${res.status}: ${errText}`;
       try {
         const parsed = JSON.parse(errText);
-        throw new Error(parsed.error || `HTTP error ${res.status}`);
-      } catch {
-        throw new Error(`HTTP error ${res.status}: ${errText}`);
-      }
+        if (typeof parsed.error === 'string') message = parsed.error;
+      } catch { /* Use the raw response when it is not JSON. */ }
+      throw new Error(message);
     }
 
     const data = await res.json();
@@ -92,10 +92,10 @@ export const arcadeApi = {
 
   // Boggle
   getBoggleState: () => request<BoggleState>('/boggle/state'),
-  startBoggle: (size = 4) =>
+  startBoggle: (size = 4, duration_secs?: number) =>
     request<BoggleState>('/boggle/start', {
       method: 'POST',
-      body: JSON.stringify({ size }),
+      body: JSON.stringify({ size, ...(duration_secs !== undefined ? { duration_secs } : {}) }),
     }),
   submitBoggleWord: (word: string) =>
     request<BoggleSubmitResponse>('/boggle/submit', {

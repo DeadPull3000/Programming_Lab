@@ -12,6 +12,7 @@ import {
   BeeGameIcon,
   BoggleGameIcon,
   CookieEasterEgg,
+  CountdownTimerIcon,
   DiaryBookIcon,
   PawPrintIcon,
   SettingsCogIcon,
@@ -34,6 +35,7 @@ const TABS: { id: GameTab; label: string; icon: React.ReactNode; color: string }
   { id: 'wordle', label: 'Wordle', icon: <WordleGameIcon size={18} />, color: '#8CCB79' },
   { id: 'spelling-bee', label: 'Spelling Bee', icon: <BeeGameIcon size={18} />, color: '#FFD56D' },
   { id: 'boggle', label: 'Boggle', icon: <BoggleGameIcon size={18} />, color: '#93DFE8' },
+  { id: 'timer', label: 'Timer', icon: <CountdownTimerIcon size={18} />, color: '#FFEAA7' },
   { id: 'stats', label: 'Scrapbook', icon: <StatsRibbonIcon size={18} />, color: '#EEDDF7' },
   { id: 'settings', label: 'Settings', icon: <SettingsCogIcon size={18} />, color: '#F5D5B9' },
 ];

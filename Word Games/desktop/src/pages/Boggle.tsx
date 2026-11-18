@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { BoggleEndResponse, BoggleState } from '../types/arcade';
 import { arcadeApi } from '../services/api';
+import { getGameTimers } from '../services/gameTimers';
 import { CozyButton } from '../components/CozyButton';
 import { CozyModal } from '../components/CozyModal';
 import { sound } from '../services/sound';
@@ -26,6 +27,7 @@ import {
 
 interface BogglePageProps {
   onGameComplete?: () => void;
+  active?: boolean;
 }
 
 interface TileCoord {
@@ -34,12 +36,14 @@ interface TileCoord {
   letter: string;
 }
 
-export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
+export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete, active = true }) => {
+  const initialized = useRef(false);
+  const pending = useRef(false);
   const [gameState, setGameState] = useState<BoggleState | null>(null);
   const [selectedBoardSize, setSelectedBoardSize] = useState<number>(4);
   const [currentInput, setCurrentInput] = useState('');
   const [selectedPath, setSelectedPath] = useState<TileCoord[]>([]);
-  const [isTracing, setIsTracing] = useState<boolean>(false);
+  const traceMoved = useRef(false);
   const isTracingRef = useRef<boolean>(false);
   const selectedPathRef = useRef<TileCoord[]>([]);
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null);
@@ -48,7 +52,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
 
   // Timer: 180 seconds round timer
   const [timeLeft, setTimeLeft] = useState<number>(180);
-  const [timerActive, setTimerActive] = useState<boolean>(true);
+  const ending = useRef(false);
 
   // End of round results
   const [endResults, setEndResults] = useState<BoggleEndResponse | null>(null);
@@ -59,8 +63,8 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
     try {
       setLoading(true);
       let state = await arcadeApi.getBoggleState();
-      if (!state.is_active || state.cells.length === 0) {
-        state = await arcadeApi.startBoggle(selectedBoardSize);
+      if (state.cells.length === 0) {
+        state = await arcadeApi.startBoggle(4, getGameTimers().boggleSecs);
       }
       setGameState(state);
       setSelectedBoardSize(state.size);
@@ -69,29 +73,32 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
     } finally {
       setLoading(false);
     }
-  }, [selectedBoardSize]);
+  }, []);
 
   useEffect(() => {
-    fetchState();
+    if (initialized.current) return;
+    initialized.current = true;
+    void fetchState();
   }, [fetchState]);
 
-  // Round countdown timer
+  // Derive time from the server deadline so refreshes and background tabs cannot reset it.
   useEffect(() => {
-    if (!timerActive || !gameState?.is_active || timeLeft <= 0) return;
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          handleEndRound();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [timerActive, gameState?.is_active, timeLeft]);
+    if (!gameState?.is_active || !gameState.ends_at_unix_ms) { setTimeLeft(0); return; }
+    const deadline = gameState.ends_at_unix_ms;
+    const tick = () => {
+      const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setTimeLeft(seconds);
+      if (seconds === 0 && !ending.current && !pending.current) void handleEndRound();
+    };
+    tick();
+    const interval = window.setInterval(tick, 250);
+    return () => window.clearInterval(interval);
+  }, [gameState?.is_active, gameState?.ends_at_unix_ms]);
 
   // Start new round
   const handleStartNewRound = async (size = selectedBoardSize) => {
+    if (pending.current) return;
+    pending.current = true;
     try {
       setLoading(true);
       setCurrentInput('');
@@ -99,28 +106,22 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
       setFeedback(null);
       setEndResults(null);
       setShowEndModal(false);
-      setTimeLeft(180);
-      setTimerActive(true);
+      const timerSecs = getGameTimers().boggleSecs;
+      setTimeLeft(timerSecs);
+      selectedPathRef.current = [];
+      isTracingRef.current = false;
 
-      const state = await arcadeApi.startBoggle(size);
+      const state = await arcadeApi.startBoggle(size, timerSecs);
       setGameState(state);
       setSelectedBoardSize(size);
       sound.playSuccess();
     } catch (err: any) {
       setFeedback({ text: err.message || 'Could not start new Boggle board', isError: true });
     } finally {
+      pending.current = false;
       setLoading(false);
     }
   };
-
-  // Keep refs synchronized with state for event listeners
-  useEffect(() => {
-    isTracingRef.current = isTracing;
-  }, [isTracing]);
-
-  useEffect(() => {
-    selectedPathRef.current = selectedPath;
-  }, [selectedPath]);
 
   // Submit word from input or selected path
   const handleSubmitWord = async (overrideWord?: string) => {
@@ -132,6 +133,8 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
 
     if (!wordToSubmit || !gameState?.is_active) return;
 
+    if (pending.current) return;
+    pending.current = true;
     try {
       const res = await arcadeApi.submitBoggleWord(wordToSubmit);
       if (res.result === 'Accepted') {
@@ -156,14 +159,16 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
       setCurrentInput('');
       selectedPathRef.current = [];
       setSelectedPath([]);
+    } finally {
+      pending.current = false;
     }
   };
 
   // End round
   const handleEndRound = async () => {
-    if (!gameState || !gameState.is_active) return;
+    if (!gameState || !gameState.is_active || ending.current || pending.current) return;
+    ending.current = true;
     try {
-      setTimerActive(false);
       const res = await arcadeApi.endBoggle();
       setEndResults(res);
       setGameState(res.state);
@@ -172,19 +177,17 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
       onGameComplete?.();
     } catch (err: any) {
       setFeedback({ text: err.message || 'Failed to end round', isError: true });
+    } finally {
+      ending.current = false;
     }
   };
 
-  // Start pointer tracing on mouse down or touch
+  // A tap extends the path; dragging additionally submits it on release.
   const handleTraceStart = (row: number, col: number, letter: string) => {
-    if (!gameState?.is_active) return;
+    if (!gameState?.is_active || pending.current) return;
+    traceMoved.current = false;
     isTracingRef.current = true;
-    setIsTracing(true);
-    setCurrentInput('');
-    const newPath = [{ row, col, letter }];
-    selectedPathRef.current = newPath;
-    setSelectedPath(newPath);
-    sound.playPop(440);
+    handleTileClick(row, col, letter);
   };
 
   // Move pointer over adjacent tiles to trace the word path
@@ -199,6 +202,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
       path[path.length - 2].row === row &&
       path[path.length - 2].col === col
     ) {
+      traceMoved.current = true;
       sound.playClick();
       const newPath = path.slice(0, -1);
       selectedPathRef.current = newPath;
@@ -216,6 +220,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
     const dRow = Math.abs(last.row - row);
     const dCol = Math.abs(last.col - col);
     if (dRow <= 1 && dCol <= 1 && (dRow + dCol > 0)) {
+      traceMoved.current = true;
       const newPath = [...path, { row, col, letter }];
       selectedPathRef.current = newPath;
       setSelectedPath(newPath);
@@ -227,28 +232,25 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
   const handleTraceEnd = () => {
     if (!isTracingRef.current) return;
     isTracingRef.current = false;
-    setIsTracing(false);
 
     // If traced word is 3+ letters, auto-submit directly to the engine
-    if (selectedPathRef.current.length >= 3) {
+    if (traceMoved.current && selectedPathRef.current.length >= 3) {
       const word = selectedPathRef.current.map((p) => p.letter).join('');
       handleSubmitWord(word);
     }
   };
 
-  // Global pointer up listener to cleanly catch releases outside the board
+  // Read the latest handler instead of retaining the first render's empty game state.
+  const traceEndHandler = useRef(handleTraceEnd);
+  traceEndHandler.current = handleTraceEnd;
   useEffect(() => {
-    const onGlobalEnd = () => {
-      if (isTracingRef.current) {
-        handleTraceEnd();
-      }
-    };
-
-    window.addEventListener('mouseup', onGlobalEnd);
-    window.addEventListener('touchend', onGlobalEnd);
+    const onEnd = () => traceEndHandler.current();
+    const onCancel = () => { isTracingRef.current = false; };
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onCancel);
     return () => {
-      window.removeEventListener('mouseup', onGlobalEnd);
-      window.removeEventListener('touchend', onGlobalEnd);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onCancel);
     };
   }, []);
 
@@ -269,7 +271,8 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
 
   // Discrete click interaction (for tapping letter by letter without dragging)
   const handleTileClick = (row: number, col: number, letter: string) => {
-    if (!gameState?.is_active) return;
+    if (!gameState?.is_active || pending.current) return;
+    setCurrentInput('');
 
     if (
       selectedPath.length > 0 &&
@@ -311,7 +314,11 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
   // Keyboard support for typing words directly
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (!active || loading || pending.current || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (e.target instanceof HTMLElement && e.target.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+      if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete' || /^[a-zA-Z]$/.test(e.key)) e.preventDefault();
       if (e.key === 'Enter') {
         handleSubmitWord();
       } else if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -332,12 +339,14 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentInput, selectedPath, gameState]);
+  }, [currentInput, selectedPath, gameState, active, loading]);
 
   if (!gameState) {
     return (
       <div style={{ textAlign: 'center', padding: '60px' }}>
         <h2 style={{ fontSize: '1.4rem' }}>Opening Boggle tabletop spread...</h2>
+        <p role="alert">{feedback?.text}</p>
+        <CozyButton onClick={fetchState} disabled={loading}>Retry connection</CozyButton>
       </div>
     );
   }
@@ -395,6 +404,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
             {[4, 5, 6].map((size) => (
               <button
                 key={size}
+                disabled={loading}
                 onClick={() => handleStartNewRound(size)}
                 style={{
                   padding: '3px 10px',
@@ -550,10 +560,11 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
                       data-letter={letter}
                       onPointerDown={(e) => {
                         e.preventDefault();
+                        e.currentTarget.setPointerCapture(e.pointerId);
                         handleTraceStart(rIdx, cIdx, letter);
                       }}
                       onPointerEnter={() => handleTraceEnter(rIdx, cIdx, letter)}
-                      onClick={() => handleTileClick(rIdx, cIdx, letter)}
+                      onClick={(e) => { if (e.detail === 0) handleTileClick(rIdx, cIdx, letter); }}
                       style={{
                         width: `${tileSize}px`,
                         height: `${tileSize}px`,
@@ -622,10 +633,11 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
             size="sm"
             onClick={() => {
               sound.playClick();
+              selectedPathRef.current = [];
               setSelectedPath([]);
               setCurrentInput('');
             }}
-            disabled={!currentDisplayWord}
+            disabled={!currentDisplayWord || !gameState.is_active}
           >
             Clear
           </CozyButton>
@@ -634,7 +646,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
             variant="coral"
             size="sm"
             onClick={() => handleSubmitWord()}
-            disabled={!currentDisplayWord}
+            disabled={!currentDisplayWord || !gameState.is_active}
           >
             Submit Word
           </CozyButton>
@@ -700,14 +712,14 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
                 fontFamily: 'monospace',
                 fontSize: '1.2rem',
                 fontWeight: 900,
-                color: timeLeft <= 30 ? '#c92a2a' : 'var(--text-main)',
+                color: gameState.ends_at_unix_ms && timeLeft <= 30 ? '#c92a2a' : 'var(--text-main)',
                 backgroundColor: '#FAF0DE',
                 padding: '3px 8px',
                 borderRadius: '6px',
                 border: '1.5px solid var(--outline-cocoa)',
               }}
             >
-              {formatTimer(timeLeft)}
+              {gameState.ends_at_unix_ms ? formatTimer(timeLeft) : 'Untimed'}
             </div>
 
             {gameState.is_active && (
@@ -810,7 +822,7 @@ export const BogglePage: React.FC<BogglePageProps> = ({ onGameComplete }) => {
 
       {/* End of Round Modal */}
       <CozyModal
-        isOpen={showEndModal}
+        isOpen={active && showEndModal}
         onClose={() => setShowEndModal(false)}
         title="ROUND FINISHED!"
         isVictory={endResults ? endResults.score > 0 : false}

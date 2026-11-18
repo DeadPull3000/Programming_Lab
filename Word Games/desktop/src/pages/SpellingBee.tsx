@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   RotateCcw,
   Shuffle,
@@ -8,6 +8,7 @@ import {
   SpellingBeeState,
 } from '../types/arcade';
 import { arcadeApi } from '../services/api';
+import { getGameTimers } from '../services/gameTimers';
 import { CozyButton } from '../components/CozyButton';
 import { CozyModal } from '../components/CozyModal';
 import { sound } from '../services/sound';
@@ -27,6 +28,7 @@ import {
 
 interface SpellingBeePageProps {
   onGameComplete?: () => void;
+  active?: boolean;
 }
 
 const HexagonTile: React.FC<{
@@ -72,7 +74,9 @@ const HexagonTile: React.FC<{
   </button>
 );
 
-export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete }) => {
+export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete, active = true }) => {
+  const initialized = useRef(false);
+  const pending = useRef(false);
   const [gameState, setGameState] = useState<SpellingBeeState | null>(null);
   const [currentInput, setCurrentInput] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; isError: boolean } | null>(
@@ -89,6 +93,42 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
   // Celebrations
   const [showQueenModal, setShowQueenModal] = useState(false);
   const [showPangramToast, setShowPangramToast] = useState(false);
+
+  // Custom blitz timer
+  const [blitzSecs, setBlitzSecs] = useState<number>(() => getGameTimers().spellingBeeSecs);
+  const [blitzTimeLeft, setBlitzTimeLeft] = useState<number>(() => getGameTimers().spellingBeeSecs);
+  const [blitzExpired, setBlitzExpired] = useState<boolean>(false);
+
+  // Sync with Timer configuration changes
+  useEffect(() => {
+    const handleTimersChange = () => {
+      const updated = getGameTimers().spellingBeeSecs;
+      setBlitzSecs(updated);
+      setBlitzTimeLeft(updated);
+      setBlitzExpired(false);
+    };
+    window.addEventListener('game-timers-changed', handleTimersChange);
+    return () => window.removeEventListener('game-timers-changed', handleTimersChange);
+  }, []);
+
+  // Blitz countdown interval effect
+  useEffect(() => {
+    if (blitzSecs <= 0 || !active || gameState?.is_queen_bee || blitzExpired) return;
+
+    const interval = setInterval(() => {
+      setBlitzTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setBlitzExpired(true);
+          sound.playInvalid();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [blitzSecs, active, gameState?.is_queen_bee, blitzExpired]);
 
   // Fetch or start game
   const fetchState = useCallback(async () => {
@@ -110,22 +150,31 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
   }, []);
 
   useEffect(() => {
-    fetchState();
+    if (initialized.current) return;
+    initialized.current = true;
+    void fetchState();
   }, [fetchState]);
 
   // Restart puzzle
   const handleNewPuzzle = async () => {
+    if (pending.current) return;
+    pending.current = true;
     try {
       setLoading(true);
       setCurrentInput('');
       setFeedbackMessage(null);
       setHintsData(null);
+      setBlitzExpired(false);
+      const timers = getGameTimers();
+      setBlitzSecs(timers.spellingBeeSecs);
+      setBlitzTimeLeft(timers.spellingBeeSecs);
       const state = await arcadeApi.startSpellingBee();
       setGameState(state);
       sound.playSuccess();
     } catch (err: any) {
       setFeedbackMessage({ text: err.message || 'Could not start new puzzle', isError: true });
     } finally {
+      pending.current = false;
       setLoading(false);
     }
   };
@@ -136,7 +185,7 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
       sound.playClick();
       const res = await arcadeApi.shuffleSpellingBee();
       if (gameState) {
-        setGameState({ ...gameState, outer_letters: res.outer_letters });
+        setGameState((previous) => previous ? { ...previous, outer_letters: res.outer_letters } : previous);
       }
     } catch (e) {
       // fallback
@@ -147,6 +196,8 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
   const handleSubmitWord = async () => {
     if (!gameState || !currentInput.trim()) return;
 
+    if (pending.current) return;
+    pending.current = true;
     try {
       const res = await arcadeApi.submitSpellingBeeWord(currentInput);
       if (res.result === 'Accepted') {
@@ -178,6 +229,8 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
       sound.playInvalid();
       setFeedbackMessage({ text: err.message || 'Submission failed', isError: true });
       setCurrentInput('');
+    } finally {
+      pending.current = false;
     }
   };
 
@@ -194,7 +247,11 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
   // Keyboard navigation
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (!active || loading || pending.current || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (e.target instanceof HTMLElement && e.target.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+      if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete' || /^[a-zA-Z]$/.test(e.key)) e.preventDefault();
       if (e.key === 'Enter') {
         handleSubmitWord();
       } else if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -205,7 +262,7 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentInput, gameState]);
+  }, [currentInput, gameState, active, loading]);
 
   // Load Hints
   const handleToggleHints = async () => {
@@ -227,6 +284,8 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
     return (
       <div style={{ textAlign: 'center', padding: '60px' }}>
         <h2 style={{ fontSize: '1.4rem' }}>Opening Spelling Bee diary spread...</h2>
+        <p role="alert">{feedbackMessage?.text}</p>
+        <CozyButton onClick={fetchState} disabled={loading}>Retry connection</CozyButton>
       </div>
     );
   }
@@ -237,6 +296,12 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
       : 0;
 
   const outer = gameState.outer_letters;
+
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div
@@ -277,17 +342,93 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
             </h2>
           </div>
 
-          <div
-            style={{
-              fontFamily: 'var(--font-handwritten)',
-              fontSize: '1.2rem',
-              color: '#6E4E37',
-              fontWeight: 700,
-            }}
-          >
-            Center: [ {gameState.main_letter} ]
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              title={blitzSecs > 0 ? 'Blitz Countdown Timer (configure in Timer tab)' : 'Untimed Zen Mode (configure in Timer tab)'}
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '1.05rem',
+                fontWeight: 900,
+                color: blitzSecs > 0 && blitzTimeLeft <= 30 ? '#c92a2a' : 'var(--text-main)',
+                backgroundColor: '#FAF0DE',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                border: '1.5px solid var(--outline-cocoa)',
+              }}
+            >
+              ⏱️ {blitzSecs > 0 ? formatTimer(blitzTimeLeft) : 'Untimed'}
+            </div>
+
+            <div
+              style={{
+                fontFamily: 'var(--font-handwritten)',
+                fontSize: '1.2rem',
+                color: '#6E4E37',
+                fontWeight: 700,
+              }}
+            >
+              Center: [ {gameState.main_letter} ]
+            </div>
           </div>
         </div>
+
+        {/* Blitz Time Expired Alert Banner */}
+        {blitzExpired && blitzSecs > 0 && (
+          <div
+            className="animate-pop"
+            style={{
+              padding: '6px 14px',
+              borderRadius: 'var(--radius-pill)',
+              border: '2px solid #a83d38',
+              backgroundColor: '#FFD3D1',
+              color: '#721C24',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              margin: '4px 0',
+            }}
+          >
+            <span>⏰ Time&apos;s Up! Blitz round complete.</span>
+            <button
+              onClick={() => {
+                setBlitzExpired(false);
+                setBlitzTimeLeft(blitzSecs);
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid #721C24',
+                borderRadius: '4px',
+                padding: '1px 6px',
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                color: '#721C24',
+              }}
+            >
+              Reset Timer
+            </button>
+            <button
+              onClick={() => {
+                setBlitzExpired(false);
+                setBlitzSecs(0);
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid #721C24',
+                borderRadius: '4px',
+                padding: '1px 6px',
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                color: '#721C24',
+              }}
+            >
+              Continue Zen
+            </button>
+          </div>
+        )}
 
         {/* Word Input Display Box */}
         <div
@@ -606,7 +747,7 @@ export const SpellingBeePage: React.FC<SpellingBeePageProps> = ({ onGameComplete
 
       {/* Queen Bee Celebration Modal */}
       <CozyModal
-        isOpen={showQueenModal}
+        isOpen={active && showQueenModal}
         onClose={() => setShowQueenModal(false)}
         title="QUEEN BEE ACHIEVED!"
         isVictory={true}

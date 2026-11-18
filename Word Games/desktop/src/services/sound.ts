@@ -53,6 +53,26 @@ class SoundService {
     osc.stop(ctx.currentTime + 0.06);
   }
 
+  // Harmonic countdown bell chime (880Hz / 1760Hz)
+  public playBell() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    [880, 1760, 2640].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.15 / (idx + 1), now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 1.2);
+    });
+  }
+
   // Soft bubble pop on tile selection or reveal
   public playPop(frequency = 480) {
     const ctx = this.getContext();

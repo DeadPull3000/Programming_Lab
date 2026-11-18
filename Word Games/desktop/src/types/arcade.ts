@@ -1,6 +1,6 @@
 // Type definitions matching arcade-server JSON responses
 
-export type GameTab = 'home' | 'wordle' | 'spelling-bee' | 'boggle' | 'stats' | 'settings';
+export type GameTab = 'home' | 'wordle' | 'spelling-bee' | 'boggle' | 'timer' | 'stats' | 'settings';
 
 export interface SystemStatus {
   status: string;
@@ -99,6 +99,7 @@ export interface BoggleState {
   total_possible_words: number;
   max_possible_score: number;
   is_active: boolean;
+  ends_at_unix_ms: number | null;
 }
 
 export interface BoggleSubmitResponse {

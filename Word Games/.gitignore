@@ -28,3 +28,6 @@ dist/
 .vite/
 # Runtime game storage
 arcade_stats.json
+
+arcade_settings.json
+*.json.tmp.*

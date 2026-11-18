@@ -125,7 +125,7 @@ impl JsonValue {
     pub fn as_u64(&self) -> Option<u64> {
         match self {
             JsonValue::Number(n) => {
-                if *n >= 0.0 && n.fract() == 0.0 {
+                if n.is_finite() && *n >= 0.0 && *n < u64::MAX as f64 && n.fract() == 0.0 {
                     Some(*n as u64)
                 } else {
                     None
@@ -148,6 +148,7 @@ impl JsonValue {
 pub struct JsonParser<'a> {
     input: &'a [u8],
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> JsonParser<'a> {
@@ -155,6 +156,7 @@ impl<'a> JsonParser<'a> {
         Self {
             input: input.as_bytes(),
             pos: 0,
+            depth: 0,
         }
     }
 
@@ -191,8 +193,14 @@ impl<'a> JsonParser<'a> {
     }
 
     fn parse_value(&mut self) -> Result<JsonValue, StatsError> {
+        if self.depth >= 64 {
+            return Err(StatsError::CorruptFile(
+                "JSON nesting limit exceeded".into(),
+            ));
+        }
+        self.depth += 1;
         self.skip_whitespace();
-        match self.peek() {
+        let result = match self.peek() {
             Some(b'{') => self.parse_object(),
             Some(b'[') => self.parse_array(),
             Some(b'"') => self.parse_string().map(JsonValue::String),
@@ -206,7 +214,9 @@ impl<'a> JsonParser<'a> {
             None => Err(StatsError::CorruptFile(
                 "unexpected EOF while parsing value".to_string(),
             )),
-        }
+        };
+        self.depth -= 1;
+        result
     }
 
     fn parse_object(&mut self) -> Result<JsonValue, StatsError> {
@@ -226,7 +236,9 @@ impl<'a> JsonParser<'a> {
             self.expect_byte(b':')?;
             self.skip_whitespace();
             let val = self.parse_value()?;
-            map.insert(key, val);
+            if map.insert(key, val).is_some() {
+                return Err(StatsError::CorruptFile("duplicate object key".into()));
+            }
 
             self.skip_whitespace();
             match self.peek() {
@@ -315,10 +327,41 @@ impl<'a> JsonParser<'a> {
                         b'n' => out.push('\n'),
                         b'r' => out.push('\r'),
                         b't' => out.push('\t'),
-                        _ => out.push(esc as char),
+                        b'u' => {
+                            let first = self.parse_hex_quad()?;
+                            let scalar = if (0xD800..=0xDBFF).contains(&first) {
+                                self.expect_byte(b'\\')?;
+                                self.expect_byte(b'u')?;
+                                let second = self.parse_hex_quad()?;
+                                if !(0xDC00..=0xDFFF).contains(&second) {
+                                    return Err(StatsError::CorruptFile(
+                                        "invalid surrogate pair".into(),
+                                    ));
+                                }
+                                0x10000 + ((first - 0xD800) << 10) + second - 0xDC00
+                            } else {
+                                first
+                            };
+                            out.push(char::from_u32(scalar).ok_or_else(|| {
+                                StatsError::CorruptFile("invalid Unicode escape".into())
+                            })?);
+                        }
+                        _ => return Err(StatsError::CorruptFile("invalid string escape".into())),
                     }
                 }
-                _ => out.push(b as char),
+                0..=0x1F => {
+                    return Err(StatsError::CorruptFile(
+                        "unescaped control character".into(),
+                    ))
+                }
+                0x20..=0x7F => out.push(b as char),
+                _ => {
+                    let remaining = std::str::from_utf8(&self.input[self.pos - 1..])
+                        .map_err(|e| StatsError::CorruptFile(e.to_string()))?;
+                    let ch = remaining.chars().next().unwrap();
+                    self.pos += ch.len_utf8() - 1;
+                    out.push(ch);
+                }
             }
         }
 
@@ -327,18 +370,40 @@ impl<'a> JsonParser<'a> {
         ))
     }
 
+    fn parse_hex_quad(&mut self) -> Result<u32, StatsError> {
+        let mut value = 0;
+        for _ in 0..4 {
+            let digit = self
+                .next_char()
+                .and_then(|b| (b as char).to_digit(16))
+                .ok_or_else(|| StatsError::CorruptFile("invalid Unicode escape".into()))?;
+            value = value * 16 + digit;
+        }
+        Ok(value)
+    }
+
     fn parse_number(&mut self) -> Result<JsonValue, StatsError> {
         let start = self.pos;
         if let Some(b'-') = self.peek() {
             self.pos += 1;
         }
-        while let Some(b'0'..=b'9') = self.peek() {
-            self.pos += 1;
+        match self.peek() {
+            Some(b'0') => self.pos += 1,
+            Some(b'1'..=b'9') => {
+                while let Some(b'0'..=b'9') = self.peek() {
+                    self.pos += 1;
+                }
+            }
+            _ => return Err(StatsError::CorruptFile("expected number digits".into())),
         }
         if let Some(b'.') = self.peek() {
             self.pos += 1;
+            let digits_start = self.pos;
             while let Some(b'0'..=b'9') = self.peek() {
                 self.pos += 1;
+            }
+            if self.pos == digits_start {
+                return Err(StatsError::CorruptFile("expected fraction digits".into()));
             }
         }
         if let Some(b'e') | Some(b'E') = self.peek() {
@@ -346,8 +411,12 @@ impl<'a> JsonParser<'a> {
             if let Some(b'+') | Some(b'-') = self.peek() {
                 self.pos += 1;
             }
+            let digits_start = self.pos;
             while let Some(b'0'..=b'9') = self.peek() {
                 self.pos += 1;
+            }
+            if self.pos == digits_start {
+                return Err(StatsError::CorruptFile("expected exponent digits".into()));
             }
         }
 
@@ -357,6 +426,9 @@ impl<'a> JsonParser<'a> {
         let num: f64 = s
             .parse()
             .map_err(|e| StatsError::CorruptFile(format!("invalid number format '{s}': {e}")))?;
+        if !num.is_finite() {
+            return Err(StatsError::CorruptFile("number out of range".into()));
+        }
         Ok(JsonValue::Number(num))
     }
 
@@ -406,6 +478,24 @@ impl<'a> JsonParser<'a> {
 // JSON Serialization & Deserialization for PlayerStats
 // ----------------------------------------------------------------------------
 
+/// Quotes arbitrary UTF-8 text as a JSON string, including control characters.
+pub fn quote_json_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{0000}'..='\u{001F}' => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// Converts `PlayerStats` into a formatted, human-readable JSON string.
 pub fn serialize_stats_to_json(stats: &PlayerStats) -> String {
     let mut out = String::new();
@@ -448,7 +538,10 @@ pub fn serialize_stats_to_json(stats: &PlayerStats) -> String {
     out.push_str("  \"history\": [\n");
     for (i, record) in stats.history.iter().enumerate() {
         out.push_str("    {\n");
-        out.push_str(&format!("      \"game_id\": \"{}\",\n", record.game_id));
+        out.push_str(&format!(
+            "      \"game_id\": {},\n",
+            quote_json_string(&record.game_id)
+        ));
         out.push_str(&format!(
             "      \"outcome\": \"{}\",\n",
             record.outcome.as_str()
@@ -694,69 +787,126 @@ impl JsonStorage {
             .validate_invariants()
             .map_err(|e| StatsError::InvariantViolation(e.to_string()))?;
 
-        if let Some(parent) = self.file_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
         let json_text = serialize_stats_to_json(stats);
-
-        // Generate temporary sibling path
-        let temp_filename = format!(
-            "{}.tmp.{}",
-            self.file_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("stats"),
-            rand_nonce()
-        );
-        let temp_path = match self.file_path.parent() {
-            Some(p) => p.join(&temp_filename),
-            None => PathBuf::from(temp_filename),
-        };
-
-        // Write and sync to disk
-        {
-            let mut file = File::create(&temp_path)?;
-            file.write_all(json_text.as_bytes())?;
-            file.flush()?;
-            file.sync_all()?;
-        }
-
-        // Atomically replace target
-        atomic_rename(&temp_path, &self.file_path)?;
+        write_atomic(&self.file_path, json_text.as_bytes())?;
         Ok(())
     }
 }
 
 /// Generates a pseudo-random nonce for safe temporary filenames.
 fn rand_nonce() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::SystemTime;
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
-    nanos ^ (std::process::id() as u64)
+    nanos.wrapping_add(SEQUENCE.fetch_add(1, Ordering::Relaxed)) ^ (std::process::id() as u64)
 }
 
-/// Atomically replaces destination path with source path.
-fn atomic_rename(from: &Path, to: &Path) -> Result<(), StatsError> {
-    #[cfg(target_os = "windows")]
-    {
-        // On Windows, if target exists, remove it first or rename through backup
-        if to.exists() {
-            let backup = to.with_extension("bak");
-            let _ = fs::rename(to, &backup);
-            if let Err(e) = fs::rename(from, to) {
-                // Restore backup if rename failed
-                let _ = fs::rename(&backup, to);
-                return Err(StatsError::Io(format!("atomic rename failed: {e}")));
-            }
-            let _ = fs::remove_file(backup);
-            return Ok(());
-        }
+#[cfg(test)]
+mod json_regression_tests {
+    use super::*;
+
+    #[test]
+    fn json_preserves_unicode_and_escaped_text() {
+        let text = "quoted \"\\\n\t café 🐈";
+        assert_eq!(
+            JsonParser::new(&quote_json_string(text)).parse().unwrap(),
+            JsonValue::String(text.into())
+        );
+        assert_eq!(
+            JsonParser::new(r#""\u0041\u00e9\ud83d\udc08""#)
+                .parse()
+                .unwrap(),
+            JsonValue::String("Aé🐈".into())
+        );
     }
 
-    fs::rename(from, to).map_err(|e| StatsError::Io(format!("rename failed: {e}")))
+    #[test]
+    fn malformed_and_excessively_nested_json_is_rejected() {
+        for text in [
+            r#""\q""#,
+            r#""\ud800""#,
+            r#""\udc00""#,
+            "01",
+            "1.",
+            "1e",
+            "1e999",
+            "[1,]",
+            r#"{"a":1,"a":2}"#,
+            "true false",
+            "\"unescaped\ncontrol\"",
+        ] {
+            assert!(JsonParser::new(text).parse().is_err(), "accepted {text}");
+        }
+        assert!(
+            JsonParser::new(&format!("{}0{}", "[".repeat(100), "]".repeat(100)))
+                .parse()
+                .is_err()
+        );
+        assert_eq!(JsonValue::Number(f64::INFINITY).as_u64(), None);
+        assert_eq!(JsonValue::Number(-1.0).as_u64(), None);
+    }
+
+    #[test]
+    fn game_ids_with_quotes_and_unicode_round_trip() {
+        let mut stats = PlayerStats::new();
+        stats.history.push(
+            GameRecord::new(
+                "a\"\\\n🐈".into(),
+                GameOutcome::Abandoned,
+                0,
+                Word::parse("APPLE").unwrap(),
+                0,
+                1,
+            )
+            .unwrap(),
+        );
+        stats.abandoned_games = 1;
+        let decoded = deserialize_stats_from_json(&serialize_stats_to_json(&stats)).unwrap();
+        assert_eq!(decoded.history, stats.history);
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_file_and_cleans_up_on_failure() {
+        let path = std::env::temp_dir().join(format!("wordle_atomic_{}", rand_nonce()));
+        fs::create_dir_all(&path).unwrap();
+        let file = path.join("stats.json");
+        write_atomic(&file, b"first").unwrap();
+        write_atomic(&file, b"second").unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"second");
+        assert!(write_atomic(&path, b"fail").is_err());
+        assert!(path.is_dir());
+        assert_eq!(fs::read_dir(&path).unwrap().count(), 1);
+        fs::remove_dir_all(path).unwrap();
+    }
+}
+
+/// Writes a synced sibling file and replaces the destination in one rename.
+/// The old file remains intact if writing or replacement fails.
+pub fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)?;
+    }
+    let mut temp_name = path.as_os_str().to_os_string();
+    temp_name.push(format!(".tmp.{}", rand_nonce()));
+    let temp_path = PathBuf::from(temp_name);
+    let mut file = File::options()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)?;
+    let result = (|| {
+        file.write_all(contents)?;
+        file.sync_all()
+    })();
+    drop(file);
+    let result = result.and_then(|()| fs::rename(&temp_path, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
 }
 
 #[cfg(test)]

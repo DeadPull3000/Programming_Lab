@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 trie = { path = "../1 - Library Trie/trie" }
+countdown-timer = { path = "../countdown-timer" }
 rand = "0.8"

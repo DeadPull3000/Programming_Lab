@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { sound } from '../services/sound';
@@ -18,11 +18,35 @@ export const CozyModal: React.FC<CozyModalProps> = ({
   isVictory,
   children,
 }) => {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    dialog?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeRef.current(); }
+      if (event.key !== 'Tab' || !dialog) return;
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), [tabindex="0"]'));
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (!first) { event.preventDefault(); dialog.focus(); return; }
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
+  }, [isOpen]);
+
   useEffect(() => {
     if (isOpen && isVictory) {
       sound.playSuccess();
       try {
-        confetti({
+        if (!document.documentElement.classList.contains('reduced-motion')) confetti({
+          disableForReducedMotion: true,
           particleCount: 50,
           spread: 70,
           origin: { y: 0.6 },
@@ -52,6 +76,11 @@ export const CozyModal: React.FC<CozyModalProps> = ({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className="cozy-card animate-pop"
         style={{
           width: '100%',
@@ -59,6 +88,8 @@ export const CozyModal: React.FC<CozyModalProps> = ({
           backgroundColor: 'var(--panel-cream)',
           padding: '24px',
           position: 'relative',
+          maxHeight: '90vh',
+          overflowY: 'auto',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -85,7 +116,7 @@ export const CozyModal: React.FC<CozyModalProps> = ({
                 />
               </svg>
             )}
-            <h2 style={{ fontSize: '1.45rem', color: 'var(--text-main)' }}>{title}</h2>
+            <h2 id={titleId} style={{ fontSize: '1.45rem', color: 'var(--text-main)' }}>{title}</h2>
           </div>
           <button
             onClick={() => {

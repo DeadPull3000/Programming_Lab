@@ -173,3 +173,49 @@ fn test_boggle_qu_tile_and_scoring_integration() {
     // Verify 5-letter word scores 2 points
     assert_eq!(calculate_score(5), 2);
 }
+
+#[test]
+fn test_boggle_timed_round_with_countdown_timer() {
+    use countdown_timer::timer::{CountdownTimer, TimerConfig, TimerState};
+    use std::time::Duration;
+
+    let trie = load_test_dictionary();
+    let board_chars: Vec<char> = "PEACESTARLINGSXZ".chars().collect();
+    let board = Board::new(4, board_chars).expect("board construction");
+    let mut game = BoggleGame::new(board);
+
+    // Initialize countdown timer with 500ms
+    let config = TimerConfig::new(Duration::from_millis(500)).expect("timer config");
+    let mut timer = CountdownTimer::new(config);
+    timer.start().expect("timer start");
+    assert_eq!(timer.state(), TimerState::Running);
+
+    // Find actual valid words on the board
+    let solutions = solve_boggle_board(&trie, &game.board);
+    assert!(solutions.len() >= 2, "Board should contain valid words");
+    let mut iter = solutions.iter();
+    let w1 = iter.next().unwrap().clone();
+    let w2 = iter.next().unwrap().clone();
+
+    // Player enters valid words while timer is active
+    game.add_input_line(&format!("{}, {}", w1, w2));
+    assert!(!timer.remaining().is_zero(), "Timer should still be active");
+
+    // Wait for timer expiration
+    std::thread::sleep(Duration::from_millis(550));
+    assert!(timer.remaining().is_zero(), "Timer should have reached zero");
+    assert_eq!(timer.state(), TimerState::Expired);
+
+    // Evaluate results
+    let results = game.evaluate_batch(&trie);
+    let accepted: Vec<String> = results
+        .iter()
+        .filter_map(|r| match &r.result {
+            BoggleGuessResult::Accepted { word, .. } => Some(word.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(accepted.contains(&w1));
+    assert!(accepted.contains(&w2));
+}

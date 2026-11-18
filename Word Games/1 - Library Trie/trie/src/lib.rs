@@ -61,35 +61,16 @@ impl Node {
     pub(crate) fn has_any_children(&self) -> bool {
         self.children.iter().any(|c| c.is_some())
     }
+}
 
-    /// A node is prunable if it is not a terminal word and has no remaining children.
-    pub(crate) fn is_prunable(&self) -> bool {
-        !self.is_terminal && !self.has_any_children()
-    }
-
-    /// Recursively removes a word path from this node.
-    ///
-    /// Returns `true` if a complete word was found and unmarked.
-    /// Any dangling child node that becomes non-terminal and childless is pruned.
-    pub(crate) fn remove_recursive(node: &mut Node, bytes: &[u8], depth: usize) -> bool {
-        if depth == bytes.len() {
-            if node.is_terminal {
-                node.is_terminal = false;
-                true
-            } else {
-                false
-            }
-        } else {
-            let idx = (bytes[depth] - b'A') as usize;
-            if let Some(child) = node.children[idx].as_deref_mut() {
-                let removed = Self::remove_recursive(child, bytes, depth + 1);
-                if removed && node.children[idx].as_ref().unwrap().is_prunable() {
-                    node.children[idx] = None;
-                }
-                removed
-            } else {
-                false
-            }
+// A dictionary can contain arbitrarily long valid words. Drain descendants on
+// the heap so dropping a trie (or a pruned branch) cannot overflow the stack.
+impl Drop for Node {
+    fn drop(&mut self) {
+        let mut pending: Vec<Box<Node>> =
+            self.children.iter_mut().filter_map(Option::take).collect();
+        while let Some(mut node) = pending.pop() {
+            pending.extend(node.children.iter_mut().filter_map(Option::take));
         }
     }
 }
@@ -247,11 +228,14 @@ impl Trie {
     ///
     /// Returns `None` if the input is invalid/empty or if the path does not exist in the trie.
     fn find_node(&self, text: &str) -> Option<&Node> {
-        let normalized = normalize_word(text).ok()?;
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
         let mut current = &self.root;
 
-        for ch in normalized.chars() {
-            let idx = char_to_index(ch)?;
+        for ch in text.chars() {
+            let idx = char_to_index(ch.to_ascii_uppercase())?;
             current = current.children[idx].as_deref()?;
         }
 
@@ -340,13 +324,89 @@ impl Trie {
     /// ```
     pub fn remove(&mut self, word: &str) -> Result<bool, TrieError> {
         let normalized = normalize_word(word)?;
-        let removed = Node::remove_recursive(&mut self.root, normalized.as_bytes(), 0);
-        if removed {
-            self.word_count -= 1;
-            Ok(true)
-        } else {
-            Ok(false)
+        let bytes = normalized.as_bytes();
+        let mut current = &self.root;
+        let mut prune_depth = 0;
+        for (depth, &byte) in bytes.iter().enumerate() {
+            if current.is_terminal || current.children.iter().filter(|c| c.is_some()).count() > 1 {
+                prune_depth = depth;
+            }
+            let Some(child) = current.children[(byte - b'A') as usize].as_deref() else {
+                return Ok(false);
+            };
+            current = child;
         }
+        if !current.is_terminal {
+            return Ok(false);
+        }
+        let has_children = current.has_any_children();
+        let mut current = &mut self.root;
+        let depth = if has_children {
+            bytes.len()
+        } else {
+            prune_depth
+        };
+        for &byte in &bytes[..depth] {
+            current = current.children[(byte - b'A') as usize]
+                .as_deref_mut()
+                .unwrap();
+        }
+        if has_children {
+            current.is_terminal = false;
+        } else {
+            current.children[(bytes[prune_depth] - b'A') as usize] = None;
+        }
+        self.word_count -= 1;
+        Ok(true)
+    }
+
+    /// Returns up to `limit` words starting with `prefix`, in alphabetical order.
+    /// An empty prefix searches the entire dictionary. Invalid prefixes return an error.
+    /// Traversal stops as soon as the limit is reached and uses no recursive calls.
+    pub fn completions(&self, prefix: &str, limit: usize) -> Result<Vec<String>, TrieError> {
+        let mut word = if prefix.trim().is_empty() {
+            String::new()
+        } else {
+            normalize_word(prefix)?
+        };
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let node = if word.is_empty() {
+            &self.root
+        } else {
+            match self.find_node(&word) {
+                Some(node) => node,
+                None => return Ok(Vec::new()),
+            }
+        };
+        let mut results = Vec::new();
+        if node.is_terminal {
+            results.push(word.clone());
+        }
+        let mut stack = vec![(node, 0)];
+        while results.len() < limit {
+            let Some((node, index)) = stack.last_mut() else {
+                break;
+            };
+            if *index == ALPHABET_SIZE {
+                stack.pop();
+                if !stack.is_empty() {
+                    word.pop();
+                }
+                continue;
+            }
+            let next = *index;
+            *index += 1;
+            if let Some(child) = node.children[next].as_deref() {
+                word.push((b'A' + next as u8) as char);
+                if child.is_terminal {
+                    results.push(word.clone());
+                }
+                stack.push((child, 0));
+            }
+        }
+        Ok(results)
     }
 
     /// Removes a list of words from the trie.
@@ -868,5 +928,45 @@ mod tests {
         assert!(branch_r.is_word());
         // Verify ba itself was not mutated
         assert!(!ba.is_word());
+    }
+}
+
+#[cfg(test)]
+mod robustness_tests {
+    use super::*;
+
+    #[test]
+    fn completions_are_normalized_ordered_and_bounded() {
+        let mut trie = Trie::new();
+        for word in ["CAT", "CAR", "CART", "DOG", "CARE"] {
+            trie.insert(word).unwrap();
+        }
+        assert_eq!(
+            trie.completions(" ca ", 3).unwrap(),
+            ["CAR", "CARE", "CART"]
+        );
+        assert_eq!(
+            trie.completions("car", 10).unwrap(),
+            ["CAR", "CARE", "CART"]
+        );
+        assert_eq!(trie.completions("", 1).unwrap(), ["CAR"]);
+        assert!(trie.completions("missing", 10).unwrap().is_empty());
+        assert!(trie.completions("", 0).unwrap().is_empty());
+        assert!(trie.completions("café", 10).is_err());
+        trie.remove("CARE").unwrap();
+        assert_eq!(trie.completions("CAR", 10).unwrap(), ["CAR", "CART"]);
+    }
+
+    #[test]
+    fn long_paths_can_be_removed_and_dropped_without_recursion() {
+        let word = "A".repeat(20_000);
+        let mut trie = Trie::new();
+        trie.insert("A").unwrap();
+        trie.insert(&word).unwrap();
+        assert!(trie.contains(&word));
+        assert!(trie.remove(&word).unwrap());
+        assert!(trie.contains("A"));
+        trie.insert(&word).unwrap();
+        drop(trie);
     }
 }

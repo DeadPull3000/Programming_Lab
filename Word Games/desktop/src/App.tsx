@@ -5,6 +5,7 @@ import { Home } from './pages/Home';
 import { WordlePage } from './pages/Wordle';
 import { SpellingBeePage } from './pages/SpellingBee';
 import { BogglePage } from './pages/Boggle';
+import { TimerPage } from './pages/Timer';
 import { StatisticsPage } from './pages/Statistics';
 import { SettingsPage } from './pages/Settings';
 import { sound } from './services/sound';
@@ -12,9 +13,15 @@ import { DiaryBook } from './components/DiaryBook';
 
 export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<GameTab>('home');
+  const [visitedTabs, setVisitedTabs] = useState<Set<GameTab>>(new Set(['home']));
+  const selectTab = (tab: GameTab) => {
+    setVisitedTabs((previous) => new Set(previous).add(tab));
+    setCurrentTab(tab);
+  };
   const [summary, setSummary] = useState<GamesSummary | null>(null);
   const [stats, setStats] = useState<UnifiedStats | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ArcadeSettings>({
     sound_enabled: true,
     music_enabled: false,
@@ -63,21 +70,23 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleToggleSound = () => {
-    const nextVal = !settings.sound_enabled;
-    const updated = { ...settings, sound_enabled: nextVal };
-    setSettings(updated);
-    sound.setEnabled(nextVal);
-    if (nextVal) {
-      sound.playPop(520);
-    }
-    arcadeApi.updateSettings({ sound_enabled: nextVal }).catch(() => {});
-  };
+  const handleToggleSound = () => handleUpdateSettings({ sound_enabled: !settings.sound_enabled });
 
-  const handleUpdateSettings = (newSettings: Partial<ArcadeSettings>) => {
+  const handleUpdateSettings = async (newSettings: Partial<ArcadeSettings>) => {
     const merged = { ...settings, ...newSettings };
     setSettings(merged);
-    arcadeApi.updateSettings(newSettings).catch(() => {});
+    sound.setEnabled(merged.sound_enabled);
+    document.documentElement.classList.toggle('reduced-motion', merged.reduced_motion);
+    setSettingsError(null);
+    try {
+      await arcadeApi.updateSettings(newSettings);
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : 'Could not save settings');
+      const saved = await arcadeApi.getSettings().catch(() => settings);
+      setSettings(saved);
+      sound.setEnabled(saved.sound_enabled);
+      document.documentElement.classList.toggle('reduced-motion', saved.reduced_motion);
+    }
   };
 
   return (
@@ -89,36 +98,41 @@ export const App: React.FC = () => {
       }}
     >
       <main style={{ flex: 1 }}>
+        {settingsError && <p role="alert" style={{ textAlign: 'center' }}>{settingsError}</p>}
         <DiaryBook
           currentTab={currentTab}
-          onSelectTab={(tab) => setCurrentTab(tab)}
+          onSelectTab={(tab) => { selectTab(tab); void refreshSummaryAndStats(); }}
           summary={summary}
           soundEnabled={settings.sound_enabled}
           onToggleSound={handleToggleSound}
         >
-          {/* All active pages remain alive in memory for instant flipping without reset */}
+          {/* Open games stay mounted; only the visible page handles keyboard input. */}
           <div style={{ display: currentTab === 'home' ? 'block' : 'none' }}>
             <Home
-              onSelectGame={(gameTab) => setCurrentTab(gameTab)}
+              onSelectGame={selectTab}
               summary={summary}
               stats={stats}
             />
           </div>
 
           <div style={{ display: currentTab === 'wordle' ? 'block' : 'none' }}>
-            <WordlePage onGameComplete={refreshSummaryAndStats} />
+            {visitedTabs.has('wordle') && <WordlePage active={currentTab === 'wordle'} onGameComplete={refreshSummaryAndStats} />}
           </div>
 
           <div style={{ display: currentTab === 'spelling-bee' ? 'block' : 'none' }}>
-            <SpellingBeePage onGameComplete={refreshSummaryAndStats} />
+            {visitedTabs.has('spelling-bee') && <SpellingBeePage active={currentTab === 'spelling-bee'} onGameComplete={refreshSummaryAndStats} />}
           </div>
 
           <div style={{ display: currentTab === 'boggle' ? 'block' : 'none' }}>
-            <BogglePage onGameComplete={refreshSummaryAndStats} />
+            {visitedTabs.has('boggle') && <BogglePage active={currentTab === 'boggle'} onGameComplete={refreshSummaryAndStats} />}
+          </div>
+
+          <div style={{ display: currentTab === 'timer' ? 'block' : 'none' }}>
+            {visitedTabs.has('timer') && <TimerPage onSelectGame={selectTab} />}
           </div>
 
           <div style={{ display: currentTab === 'stats' ? 'block' : 'none' }}>
-            <StatisticsPage />
+            {visitedTabs.has('stats') && <StatisticsPage active={currentTab === 'stats'} onStatsChange={refreshSummaryAndStats} />}
           </div>
 
           <div style={{ display: currentTab === 'settings' ? 'block' : 'none' }}>
