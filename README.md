@@ -1,3 +1,10 @@
+<picture>
+  <source media="(prefers-reduced-motion: no-preference)" srcset="./project-scan.gif">
+  <img src="./project-static.png" width="1056" alt="Programming Lab ASCII project diagram">
+</picture>
+
+Compare prefix pruning in Spelling Bee, visited-state backtracking in Boggle, and duplicate-aware feedback in Wordle.
+
 ﻿# CS2102 Programming Lab
 
 This repository contains programming projects and laboratory assignments implemented in Rust.
